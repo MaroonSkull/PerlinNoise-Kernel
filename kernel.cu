@@ -1,14 +1,10 @@
 ﻿#include "cuda_runtime.h"
 #include "device_launch_parameters.h"
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
+
 #include <iostream>
 
 template<typename T>
 cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, int numSteps, int controlPoints, int resultDotsCols);
-
-void framebuffer_size_callback(GLFWwindow *window, int width, int height);
-void processInput(GLFWwindow *window);
 
 /**
 * линейная интерполяция точки t на промежутке [0, 1] между двумя прямыми с наклонами k0 и k1 соответственно.
@@ -27,12 +23,7 @@ T lerp_kernel(T k0, T k1, T t) {
 
 
 /**
-* Сигмоидальная функция из семейства smoothstep, используется для создания более интенсивного градиента шума. 
-* Подробнее см. https://en.wikipedia.org/wiki/Smoothstep#Variations
 * 
-* \param x – значение градиента (он же t)
-* 
-* \return возвращает классический smootherstep(x). Используется оригинальный второй полином Кена Перлина.
 */
 template <typename T>
 __device__ inline
@@ -41,7 +32,7 @@ T smootherstep_kernel(T x) {
 }
 
 /**
-* Одна октава одномерного шума Перлина на промежутке [n, n+1] в точке t
+* Одна октава шума Перлина на промежутке [n, n+1] в точке t
 * 
 * \param res – массив с результатом вычисления шума перлина на оси.
 * \param k – массив со значениями наклона уравнений в контрольных узлах.
@@ -53,44 +44,20 @@ T smootherstep_kernel(T x) {
 template <typename T>
 __global__
 void Perlin1D_kernel(T *res, const T *k, T step, int numSteps) {
-	int id = threadIdx.x;						// [0..] – всего точек для просчёта
+	int id = threadIdx.x;		// [0..] – всего точек для просчёта
 	int n = static_cast<T>(id) * step;			// 0 0 / 1 1 / 2 2 / .. – какие точки к каким контрольным точкам принадлежат
-	int dotNum = id % numSteps;					// 0 1 / 0 1 / 0 1 / .. – какую позицию занимает точка между левой и правой функцией
-	T t = dotNum * step;						// 0.33 0.66 / 0.33 0.66 / .. – численное значение точки для интерполяции
+	int dotNum = id % numSteps;	// 0 1 / 0 1 / 0 1 / .. – какую позицию занимает точка между левой и правой функцией
+	T t = dotNum * step;		// 0.33 0.66 / 0.33 0.66 / .. – численное значение точки для интерполяции
 	res[id] = lerp_kernel<T>(k[n], k[n+1], smootherstep_kernel<T>(t));
 }
 
 int main() {
 	constexpr int controlPoints = 5;
 	constexpr int numSteps = 10;
-	constexpr int resultDotsCols = (controlPoints - 1) * numSteps;
-	constexpr float step = 1.0f / numSteps;
-	const float k[controlPoints] = {0.0f, 0.0f, 0.0f, 0.0f, 1.0f}; // значения наклонов на углах отрезков (последний наклон равен первому)
+	constexpr int resultDotsCols = controlPoints * numSteps;
+	constexpr float step = 1.0 / numSteps;
+	const float k[controlPoints] = {-1.0, 0.2, 0.8, -0.3, -1.0}; // значения наклонов на углах отрезков (последний наклон равен первому)
 	float noise[resultDotsCols] = {0};
-
-	// Create OpenGL 3.3 context
-	glfwInit();
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	// Create window
-	GLFWwindow *window = glfwCreateWindow(400, 200, "Perlin Noise Generator", nullptr, nullptr);
-	if(window == nullptr) {
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-	// Setting up viewport
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); // Устанавливаем callback на изменение размеров окна
-
-	// Initialize GLAD
-	if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		return -1;
-	}
 
 	// Calculate Perlin in parallel.
 	cudaError_t cudaStatus = Perlin1DWithCuda<float>(noise, k, step, numSteps, controlPoints, resultDotsCols);
@@ -99,28 +66,12 @@ int main() {
 		return 1;
 	}
 
-	// Print dots to console
 	for (int i = 0; i < resultDotsCols; i++)
-		std::cout << "noise[" << i << "] = " << noise[i] << "\r\n";/**/
-
-	// Create render cycle
-	while(!glfwWindowShouldClose(window)) {
-		// Input processing
-		processInput(window);
-
-		// Rendering
-		glClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT);
-
-		glfwSwapBuffers(window);
-		glfwPollEvents();
-	}
+		std::cout << "noise[" << i << "] = " << noise[i] << "\r\n";
 
 	// cudaDeviceReset must be called before exiting in order for profiling and
 	// tracing tools such as Nsight and Visual Profiler to show complete traces.
 	cudaDeviceReset();
-	// glfwTerminate must be called before exiting in order for clean up
-	glfwTerminate();
 	return 0;
 }
 
@@ -171,7 +122,7 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, int numSteps, int contr
 	}
 
 	// Launch a kernel on the GPU with one thread for each element.
-	Perlin1D_kernel<T> <<<1, resultDotsCols>>> (dev_res, dev_k, step, resultDotsCols/(controlPoints-1));
+	Perlin1D_kernel<T> <<<1, resultDotsCols>>> (dev_res, dev_k, step, resultDotsCols/controlPoints);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -200,14 +151,4 @@ Error:
 	cudaFree(dev_k);
 
 	return cudaStatus;
-}
-
-void framebuffer_size_callback(GLFWwindow *window, int width, int height) {
-	glViewport(0, 0, width, height);
-}
-
-// Обработка всех событий ввода: запрос GLFW о нажатии/отпускании клавиш на клавиатуре в данном кадре и соответствующая обработка данных событий
-void processInput(GLFWwindow *window) {
-	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-		glfwSetWindowShouldClose(window, true);
 }

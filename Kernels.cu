@@ -1,32 +1,4 @@
-﻿#include "cuda_runtime.h"
-#include "device_launch_parameters.h"
-//#include <cooperative_groups.h> // CUDA 9.0+ = CC 3.0+
-#include <glad/glad.h>
-#include <GLFW/glfw3.h>
-#include <iostream>
-#include <stdint.h>
-
-//namespace cg = cooperative_groups;
-
-// Объявляем функции
-template<typename T>
-cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum);
-void framebuffer_size_callback(GLFWwindow *window, int32_t width, int32_t height);
-void processInput(GLFWwindow *window);
-
-// Source of OpenGL vertex shader
-const char *vertexShaderSource =	"#version 330 core\n"
-									"layout (location = 0) in vec3 aPos;\n"
-									"void main() {\n"
-									"   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-									"}\0";
-
-// Source of fragment shader
-const char *fragmentShaderSource =	"#version 330 core\n"
-									"out vec4 FragColor;\n"
-									"void main() {\n"
-									"	FragColor = vec4(1.0f, 0.25f, 0.25f, 1.0f)\n;"
-									"}\0";
+﻿#include "Definitions.h"
 
 /**
 * линейная интерполяция точки t на промежутке [0, 1] между двумя прямыми с наклонами k0 и k1 соответственно.
@@ -76,7 +48,7 @@ template <typename T>
 __global__
 void Perlin1D_kernel(T *res, T *octave, const T *k, uint32_t size, T step, uint32_t numSteps, bool isOctaveCalkNeed) {
 	uint32_t id = blockIdx.x*blockDim.x+threadIdx.x;// [0..] – всего точек для просчёта
-	if(id >= size) return;																									// проверить условие выхода
+	if(id >= size) return;
 	uint32_t n = static_cast<T>(id) * step;			// 0 0 / 1 1 / 2 2 / .. – какие точки к каким контрольным точкам принадлежат
 	uint32_t dotNum = id % numSteps;				// 0 1 / 0 1 / 0 1 / .. – какую позицию занимает точка между левой и правой функцией
 	T t = dotNum * step;							// 0.33 0.66 / 0.33 0.66 / .. – численное значение точки для интерполяции
@@ -95,6 +67,7 @@ void Perlin1D_kernel(T *res, T *octave, const T *k, uint32_t size, T step, uint3
 /**
 * Накладывает на готовый одномерный шум Перлина указанное количество октав.
 * Данная версия алгоритма предполагает, что в разделяемую память полностью помещается первая октава.
+* Это позволяет вычислять октавы для шума fp64 длиной вплоть до 8192, либо fp32 до 16384 значений.
 *
 * \param res – массив с результатом наложения октав на шум Перлина на оси.
 * \param octave – массив для хранения первой октавы шума Перлина.
@@ -116,13 +89,19 @@ void Perlin1Doctave_shared_kernel(T *res, const T *octave, uint32_t size, uint32
 	*/
 
 	uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-	if(id >= size) return;																		// проверить условие выхода
+	if(id >= size) return;
+
+	if(size > 2*sharedOctaveLength) {
+		if (id == 0) printf("size = %d, 2*sharedOctaveLength = %d. exit.\r\n\r\n", size, 2*sharedOctaveLength);
+		return;
+	}
 
 	// Сохраняем в разделяемой памяти первую октаву шума
-	for(uint32_t i = 0; i < size/32; i++) {
-		if (32 * i + threadIdx.x <= size) // контроллируем выход за пределы массива				// проверить условие выхода
+	for(uint32_t i = 0; i < size/32; i++) {	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
+		if (size > 2*(32 * i + threadIdx.x)) // контроллируем выход за пределы массива
 			sharedOctave[32 * i + threadIdx.x] = octave[i * 32 + threadIdx.x] * 0.5;
 	}
+
 	// Синхронизируем выполнение на уровне блока.
 	__syncthreads();
 	// На этом моменте вся первая октава записана в разделяемую память данного блока
@@ -161,7 +140,7 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 	*/
 
 	uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-	if(id >= size) return;																		// проверить условие выхода
+	if(id >= size) return;
 
 	// Сохраняем в разделяемой памяти первую октаву шума
 	for(uint32_t i = 0; i < size / 32; i++) {
@@ -182,175 +161,6 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 	}
 }
 
-int main() {
-	// Data in stack
-	constexpr uint32_t controlPoints = 6;
-	constexpr uint32_t numSteps = 51;
-	constexpr uint32_t octaveNum = 2;
-	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
-	constexpr float step = 1.0f / numSteps;
-	constexpr float k[controlPoints] = {.6f, -.2f, 1.0f, -.6f, -0.1f, .6f}; // значения наклонов на углах отрезков (последний наклон равен первому)
-	// Perlin noise coords data in heap
-	float *noise = new float[resultDotsCols];
-	float *vertices = new float[3 * resultDotsCols]; //x, y, z to 1 dot -> length = 3*cols
-
-	//for(int i = 0; i < resultDotsCols; i++)
-		//noise[i] = 0.f;
-	// Инициализируем z-координату графика 0
-	for(int i = 0; i < resultDotsCols; i++)
-		vertices[3*i+2] = 0.f;
-
-	// Create OpenGL 3.3 context
-	glfwInit();
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	// Create window
-	GLFWwindow *window = glfwCreateWindow(1800, 600, "Perlin Noise Generator", nullptr, nullptr);
-	if(window == nullptr) {
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-	// Setting up viewport
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); // Устанавливаем callback на изменение размеров окна
-
-	// Initialize GLAD
-	if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		return -2;
-	}
-
-	// Calculate Perlin in parallel.
-	cudaError_t cudaStatus = Perlin1DWithCuda<float>(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
-	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "Perlin1DWithCuda failed!\r\n";
-		return -5;
-	}
-
-	{
-		// Save dots into 3d coords
-		for(int i = 0; i < resultDotsCols; i++) {
-			vertices[3 * i] = 2 * static_cast<float>(i) / static_cast<float>(resultDotsCols) - 1; // x = 2x(norm)-1, нормализуем и смещаем влево
-			vertices[3 * i + 1] = noise[i]; // y
-			/*std::cout << "x[" << i << "] = " << vertices[3 * i] << "\t"
-						<< "y[" << i << "] = " << vertices[3 * i + 1]	<< "\t"
-						<< "z[" << i << "] = " << vertices[3 * i + 2]	<< "\r\n";/**/
-		}
-
-		// Create vertex array object.
-		uint32_t VAO;
-		glGenVertexArrays(1, &VAO);
-		std::cout << "Vertex array object have been created with ID = " << VAO << "\r\n";
-
-		// Связываем объект вершинного массива.
-		glBindVertexArray(VAO);
-
-		// Create vertex buffer object.
-		uint32_t VBO;
-		glGenBuffers(1, &VBO);
-		std::cout << "Vertex buffer object have been created with ID = " << VBO << "\r\n";
-
-		// Связываем буфер. Теперь все вызовы буфера с параметром GL_ARRAY_BUFFER
-		// будут использоваться для конфигурирования созданного буфера VBO
-		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-		// Копируем данные вершин в память связанного буфера
-		glBufferData(GL_ARRAY_BUFFER, 3*resultDotsCols*sizeof(*vertices), vertices, GL_STATIC_DRAW);
-
-		// Сообщаем, как OpenGL должен интерпретировать данные вершин,
-		// которые мы храним в vertices[]
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
-		glEnableVertexAttribArray(0);
-
-		// Create vertex shader
-		uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
-
-		// Compile vertex shader source code
-		glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
-		glCompileShader(vertexShader);
-
-		// Check vertex shader compile errors
-		int32_t success;
-		char infoLog[512];
-		glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-		if(!success) {
-			glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
-			std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-			return -3;
-		}
-		else std::cout << "Vertex shader have been compiled!\r\n";
-
-		// Create and compile fragment shader
-		uint32_t fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-		glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
-		glCompileShader(fragmentShader);
-
-		// Check fragment shader compile errors
-		glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-		if(!success) {
-			glGetShaderInfoLog(fragmentShader, 512, nullptr, infoLog);
-			std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\n" << infoLog << std::endl;
-			return -4;
-		}
-		else std::cout << "Fragment shader have been compiled!\r\n";
-
-		// Создаём объект шейдерной программы
-		uint32_t shaderProgram = glCreateProgram();
-
-		// Прикрепляем наши шейдеры к шейдерной программе
-		glAttachShader(shaderProgram, vertexShader);
-		glAttachShader(shaderProgram, fragmentShader);
-		glLinkProgram(shaderProgram);
-
-		// Check shader program linking errors
-		glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-		if(!success) {
-			glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-			std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-			return -6;
-		}
-		else std::cout << "Shader program have been linked!\r\n";
-
-		// Delete the shaders as they're linked into our program now and no longer necessery
-		glDeleteShader(vertexShader);
-		glDeleteShader(fragmentShader);
-
-		// Create render cycle
-		while(!glfwWindowShouldClose(window)) {
-			// Input processing
-			processInput(window);
-
-			// Rendering
-			// Активируем созданный объект
-			glUseProgram(shaderProgram);
-
-			// Отменяем связывание???
-			glBindVertexArray(VAO);
-
-			// Рисуем ось OX
-
-
-			// Рисуем шум Перлина
-			glDrawArrays(GL_LINE_STRIP, 0, resultDotsCols);
-
-			// Swap buffers
-			glfwSwapBuffers(window);
-			glfwPollEvents();
-		}
-	}
-
-	// cudaDeviceReset must be called before exiting in order for profiling and
-	// tracing tools such as Nsight and Visual Profiler to show complete traces.
-	cudaDeviceReset();
-	// glfwTerminate must be called before exiting in order for clean up
-	glfwTerminate();
-	return 0;
-}
-
 /**
 * Вспомогательная функция для вычисления шума Перлина на оси с использованием GPU.
 *
@@ -361,7 +171,7 @@ int main() {
 * \param controlPoints – количество узлов.
 * \param resultDotsCols - количество точек для просчёта.
 * \param octaveNum - количество накладывающихся октав на шум.
-* 
+*
 * \return res – функция изменяет переданный массив.
 * \return cudaError_t
 */
@@ -386,7 +196,7 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 		goto Error;
 	}
 
-	// Массив для октав займёт максимально в 2 раза меньше памяти.
+	// Массив для октав займёт в 2 раза меньше памяти.
 	if(octaveNum > 0) {
 		cudaStatus = cudaMalloc((void **)&dev_octave, resultDotsCols * sizeof(T) / 2);
 		if(cudaStatus != cudaSuccess) {
@@ -420,7 +230,7 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 	// Launch a kernel on the GPU with one thread for each element.
 	Perlin1D_kernel<T> <<<blocksPerGrid, threadsPerBlock>>>
 		(dev_res, dev_octave, dev_k, resultDotsCols, step, numSteps, static_cast<bool>(octaveNum));
-	
+
 	/*bool isOctaveCalkNeed = octaveNum > 0 ? true : false;
 	void *args[] = {&dev_res, &dev_octave, &dev_k, &step, &numSteps, &isOctaveCalkNeed};
 	cudaLaunchCooperativeKernel((void *)Perlin1D_kernel<T>, blocksPerGrid, threadsPerBlock, args, 0, 0);/**/
@@ -472,15 +282,4 @@ Error:
 	cudaFree(dev_k);
 
 	return cudaStatus;
-}
-
-// Обработка ресайза окна
-void framebuffer_size_callback(GLFWwindow *window, int32_t width, int32_t height) {
-	glViewport(0, 0, width, height);
-}
-
-// Обработка всех событий ввода: запрос GLFW о нажатии/отпускании клавиш на клавиатуре в данном кадре и соответствующая обработка данных событий
-void processInput(GLFWwindow *window) {
-	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
-		glfwSetWindowShouldClose(window, true);
 }

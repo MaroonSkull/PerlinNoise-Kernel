@@ -27,19 +27,19 @@ bool readFromFile(std::string *accumulator, const GLchar *pathToFile) {
 int main() {
 	// Data in stack
 	constexpr uint32_t controlPoints = 6;
-	constexpr uint32_t numSteps = 3276; // шум fp32 длиной в 16380 значений
-	constexpr uint32_t octaveNum = 12;
+	constexpr uint32_t numSteps = 4096; // шум fp32 длиной в 16380 значений
+	constexpr uint32_t octaveNum = 1;
 	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
 	constexpr float step = 1.0f / numSteps;
 	constexpr float k[controlPoints] = {.6f, -.2f, 1.0f, -.6f, -.1f, .6f}; // значения наклонов на углах отрезков (последний наклон равен первому)
 	// Perlin noise coords data in heap
-	float *noise = new float[resultDotsCols];
-	float *vertices = new float[3 * resultDotsCols]; //x, y, z to 1 dot -> length = 3*cols
+	float *noise = new float[resultDotsCols+1];
+	float *vertices = new float[3 * (resultDotsCols+1)]; //x, y, z to 1 dot -> length = 3*cols
 
 	//for(int i = 0; i < resultDotsCols; i++)
 		//noise[i] = 0.f;
 	// Инициализируем z-координату графика 0
-	for(int i = 0; i < resultDotsCols; i++)
+	for(int i = 0; i < resultDotsCols+1; i++)
 		vertices[3 * i + 2] = 0.f;
 
 	// Create OpenGL 3.3 context
@@ -69,7 +69,7 @@ int main() {
 	// Calculate Perlin in parallel.
 	cudaError_t cudaStatus = Perlin1DWithCuda<float>(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "Perlin1DWithCuda failed!\r\n";
+		std::cout << stderr << ": Perlin1DWithCuda failed!\r\n";
 		return -5;
 	}
 
@@ -82,6 +82,8 @@ int main() {
 						<< "y[" << i << "] = " << vertices[3 * i + 1]	<< "\t"
 						<< "z[" << i << "] = " << vertices[3 * i + 2]	<< "\r\n";/**/
 		}
+		vertices[3 * resultDotsCols] = 1; // Последняя точка всегда равна нулю.
+		vertices[3 * resultDotsCols + 1] = 0;
 
 		// Create vertex array object.
 		uint32_t VAO;
@@ -101,7 +103,7 @@ int main() {
 		glBindBuffer(GL_ARRAY_BUFFER, VBO);
 
 		// Копируем данные вершин в память связанного буфера
-		glBufferData(GL_ARRAY_BUFFER, 3 * resultDotsCols * sizeof(*vertices), vertices, GL_STATIC_DRAW);
+		glBufferData(GL_ARRAY_BUFFER, 3 * (resultDotsCols+1) * sizeof(*vertices), vertices, GL_STATIC_DRAW);
 
 		// Сообщаем, как OpenGL должен интерпретировать данные вершин,
 		// которые мы храним в vertices[]
@@ -196,7 +198,7 @@ int main() {
 
 
 			// Рисуем шум Перлина
-			glDrawArrays(GL_LINE_STRIP, 0, resultDotsCols);
+			glDrawArrays(GL_LINE_STRIP, 0, resultDotsCols+1);
 
 			// Swap buffers
 			glfwSwapBuffers(window);

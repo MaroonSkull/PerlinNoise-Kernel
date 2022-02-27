@@ -33,20 +33,20 @@ T smootherstep_kernel(T x) {
 * Вычисление одномерного шума Перлина.
 * Вычисляет массив любой длины, допустимой видеокартой (для CC3.0+ это (2^31 − 1)*2^10 ≈ 2.1990233e+12 значений)
 * 
-* \param res – массив с результатом вычисления шума перлина на оси.
+* \param noise – массив с результатом вычисления шума перлина на оси.
 * \param octave – массив для хранения первой октавы шума Перлина.
 * \param k – массив со значениями наклона уравнений в контрольных узлах.
-* \param size – длина массива res.
+* \param size – длина массива noise.
 * \param step – величина шага между точками, в которых вычисляется шум.
 * \param numSteps – количество точек между контрольными узлами.
 * \param isOctaveCalkNeed – будут ли в дальнейшем вычисляться октавы.
 * 
-* \return res – (см. описание параметра) функция изменяет переданный массив (хранится в памяти GPU).
+* \return noise – (см. описание параметра) функция изменяет переданный массив (хранится в памяти GPU).
 * \return octave – (см. описание параметра) функция изменяет переданный массив (хранится в памяти GPU).
 */
 template <typename T>
 __global__
-void Perlin1D_kernel(T *res, T *octave, const T *k, uint32_t size, T step, uint32_t numSteps, bool isOctaveCalkNeed) {
+void Perlin1D_kernel(T *noise, T *octave, const T *k, uint32_t size, T step, uint32_t numSteps, bool isOctaveCalkNeed) {
 	uint32_t id = blockIdx.x*blockDim.x+threadIdx.x;// [0..] – всего точек для просчёта
 	if(id >= size) return;
 	uint32_t n = static_cast<T>(id) * step;			// 0 0 / 1 1 / 2 2 / .. – какие точки к каким контрольным точкам принадлежат
@@ -55,13 +55,13 @@ void Perlin1D_kernel(T *res, T *octave, const T *k, uint32_t size, T step, uint3
 	t = smootherstep_kernel<T>(t);					// Применяем сигмоидальную(на промежутке [0, 1]) функцию, реализуя градиент
 	T y0 = k[n] * t;								// kx+b (b = 0)
 	T y1 = k[n+1] * (t - 1);						// kx+b (b = -k) = k(x-1)
-	res[id] = lerp_kernel<T>(y0, y1, t);			// Интерполяцией находим шум, пишем сразу в выходной массив
+	noise[id] = lerp_kernel<T>(y0, y1, t);			// Интерполяцией находим шум, пишем сразу в выходной массив
 
 	// Если пользователю нужно вычислять октавы, сохраняем в памяти первую окатву шума
 	if(isOctaveCalkNeed)
 		// Первая октава занимает в два раза меньше памяти, чем исходный шум
 		if(id % 2 == 0)
-			octave[id >> 1] = res[id] * 0.5;
+			octave[id >> 1] = noise[id] * 0.5;
 }
 
 /**
@@ -69,16 +69,16 @@ void Perlin1D_kernel(T *res, T *octave, const T *k, uint32_t size, T step, uint3
 * Данная версия алгоритма предполагает, что в разделяемую память полностью помещается первая октава.
 * Это позволяет вычислять октавы для шума fp64 длиной вплоть до 8192, либо fp32 до 16384 значений.
 *
-* \param res – массив с результатом наложения октав на шум Перлина на оси.
+* \param noise – массив с результатом наложения октав на шум Перлина на оси.
 * \param octave – массив для хранения первой октавы шума Перлина.
-* \param size – количество изменяемых значений шума, длина массива res.
+* \param size – количество изменяемых значений шума, длина массива noise.
 * \param octaveNum – количество октав.
 *
-* \return res – функция изменяет переданный массив (хранится в памяти GPU).
+* \return noise – функция изменяет переданный массив (хранится в памяти GPU).
 */
 template <typename T>
 __global__
-void Perlin1Doctave_shared_kernel(T *res, const T *octave, uint32_t size, uint32_t octaveNum) {
+void Perlin1Doctave_shared_kernel(T *noise, const T *octave, uint32_t size, uint32_t octaveNum) {
 	// выделяем разделяемую память для октав.
 	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
 	__shared__ T sharedOctave[sharedOctaveLength];
@@ -97,9 +97,13 @@ void Perlin1Doctave_shared_kernel(T *res, const T *octave, uint32_t size, uint32
 	}
 
 	// Сохраняем в разделяемой памяти первую октаву шума
-	for(uint32_t i = 0; i < size/32; i++) {	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
-		if (size > 2*(32 * i + threadIdx.x)) // контроллируем выход за пределы массива
-			sharedOctave[32 * i + threadIdx.x] = octave[i * 32 + threadIdx.x] * 0.5;
+	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
+	// Выполняем целочисленное деление с округлением вверх, чтобы скопировать всю октаву.
+	uint32_t maxI = (size % 32 == 0) ? (size / 32) : (size / 32 + 1);
+	for(uint32_t i = 0; i < maxI; i++) {
+		uint32_t sharedId = 32 * i + threadIdx.x;
+		if(size > 2 * sharedId) // контроллируем выход за пределы массива
+			sharedOctave[sharedId] = octave[sharedId] * 0.5;
 	}
 
 	// Синхронизируем выполнение на уровне блока.
@@ -111,7 +115,7 @@ void Perlin1Doctave_shared_kernel(T *res, const T *octave, uint32_t size, uint32
 		int octavePov = 1 << j;
 		for(int i = 0; i < octavePov; i++) {
 			if((id < (i + 1) * size / octavePov) && (id >= i * size / octavePov))
-				res[id] += sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
+				noise[id] += sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
 		}
 	}
 }
@@ -120,16 +124,16 @@ void Perlin1Doctave_shared_kernel(T *res, const T *octave, uint32_t size, uint32
 * Накладывает на готовый одномерный шум Перлина указанное количество октав.
 * Данная версия алгоритма позволяет накладывать на шум октавы произвольной длины.
 *
-* \param res – массив с результатом наложения октав на шум Перлина на оси.
+* \param noise – массив с результатом наложения октав на шум Перлина на оси.
 * \param octave – массив для хранения первой октавы шума Перлина.
-* \param size – количество изменяемых значений шума, длина массива res.
+* \param size – количество изменяемых значений шума, длина массива noise.
 * \param octaveNum – количество октав.
 *
-* \return res – функция изменяет переданный массив (хранится в памяти GPU).
+* \return noise – функция изменяет переданный массив (хранится в памяти GPU).
 */
 template <typename T>
 __global__
-void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t size, uint32_t octaveNum) {
+void Perlin1Doctave_shared_unlimited_kernel(T *noise, const T *octave, uint32_t size, uint32_t octaveNum) {
 	// выделяем разделяемую память для октав.
 	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
 	__shared__ T sharedOctave[sharedOctaveLength];
@@ -142,11 +146,18 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 	uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
 	if(id >= size) return;
 
+	noise[id] = -1.f;
+
 	// Сохраняем в разделяемой памяти первую октаву шума
-	for(uint32_t i = 0; i < size / 32; i++) {
-		if(32 * i + threadIdx.x <= size) // контроллируем выход за пределы массива
-			sharedOctave[32 * i + threadIdx.x] = octave[i * 32 + threadIdx.x] * 0.5;
+	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
+	// Выполняем целочисленное деление с округлением вверх, чтобы скопировать всю октаву.
+	uint32_t maxI = (sharedOctaveLength % blockDim.x == 0) ? (sharedOctaveLength / blockDim.x) : (sharedOctaveLength / blockDim.x + 1);
+	for(uint32_t i = 0; i < maxI; i++) {
+		uint32_t sharedId = blockDim.x * i + threadIdx.x;
+		if(size > 2 * sharedId) // контроллируем выход за пределы массива
+			sharedOctave[sharedId] = octave[sharedId] * 0.5;
 	}
+
 	// Синхронизируем выполнение на уровне блока.
 	__syncthreads();
 	// На этом моменте вся первая октава записана в разделяемую память данного блока
@@ -156,7 +167,7 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 		int octavePov = 1 << j;
 		for(int i = 0; i < octavePov; i++) {
 			if((id < (i + 1) * size / octavePov) && (id >= i * size / octavePov))
-				res[id] += sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
+				noise[id] = sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
 		}
 	}
 }
@@ -164,7 +175,7 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 /**
 * Вспомогательная функция для вычисления шума Перлина на оси с использованием GPU.
 *
-* \param res – массив с результатом вычисления шума перлина на оси.
+* \param noise – массив с результатом вычисления шума перлина на оси.
 * \param k – массив со значениями наклона уравнений в контрольных узлах.
 * \param step – величина шага между точками, в которых вычисляется шум.
 * \param numSteps – количество точек между контрольными узлами.
@@ -172,12 +183,12 @@ void Perlin1Doctave_shared_unlimited_kernel(T *res, const T *octave, uint32_t si
 * \param resultDotsCols - количество точек для просчёта.
 * \param octaveNum - количество накладывающихся октав на шум.
 *
-* \return res – функция изменяет переданный массив.
+* \return noise – функция изменяет переданный массив.
 * \return cudaError_t
 */
 template<typename T>
-cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum) {
-	T *dev_res = nullptr; // pointer to result array in VRAM
+cudaError_t Perlin1DWithCuda(T *noise, const T *k, T step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum) {
+	T *dev_noise = nullptr; // pointer to noiseult array in VRAM
 	T *dev_octave = nullptr; // pointer to temp array in VRAM
 	T *dev_k = nullptr; // pointer to array with tilt angle (tg slope angle) in VRAM
 	cudaError_t cudaStatus;
@@ -185,14 +196,14 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 	// Choose which GPU to run on.
 	cudaStatus = cudaSetDevice(0);
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaSetDevice failed! Do you have a CUDA-capable GPU installed?\r\n";
+		std::cout << stderr << ": cudaSetDevice failed! Do you have a CUDA-capable GPU installed?\r\n";
 		goto Error;
 	}
 
 	// Allocate GPU buffers for arrays.
-	cudaStatus = cudaMalloc((void **)&dev_res, resultDotsCols * sizeof(T));
+	cudaStatus = cudaMalloc((void **)&dev_noise, resultDotsCols * sizeof(T));
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaMalloc failed!\r\n";
+		std::cout << stderr << ": cudaMalloc failed!\r\n";
 		goto Error;
 	}
 
@@ -200,21 +211,21 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 	if(octaveNum > 0) {
 		cudaStatus = cudaMalloc((void **)&dev_octave, resultDotsCols * sizeof(T) / 2);
 		if(cudaStatus != cudaSuccess) {
-			std::cout << stderr << "cudaMalloc failed!\r\n";
+			std::cout << stderr << ": cudaMalloc failed!\r\n";
 			goto Error;
 		}
 	}
 
 	cudaStatus = cudaMalloc((void **)&dev_k, controlPoints * sizeof(T));
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaMalloc failed!\r\n";
+		std::cout << stderr << ": cudaMalloc failed!\r\n";
 		goto Error;
 	}
 
 	// Copy input vectors from host memory to GPU buffers.
 	cudaStatus = cudaMemcpy(dev_k, k, controlPoints * sizeof(T), cudaMemcpyHostToDevice);
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaMemcpy failed!\r\n";
+		std::cout << stderr << ": cudaMemcpy failed!\r\n";
 		goto Error;
 	}
 
@@ -229,15 +240,15 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 
 	// Launch a kernel on the GPU with one thread for each element.
 	Perlin1D_kernel<T> <<<blocksPerGrid, threadsPerBlock>>>
-		(dev_res, dev_octave, dev_k, resultDotsCols, step, numSteps, static_cast<bool>(octaveNum));
+		(dev_noise, dev_octave, dev_k, resultDotsCols, step, numSteps, static_cast<bool>(octaveNum));
 
 	/*bool isOctaveCalkNeed = octaveNum > 0 ? true : false;
-	void *args[] = {&dev_res, &dev_octave, &dev_k, &step, &numSteps, &isOctaveCalkNeed};
+	void *args[] = {&dev_noise, &dev_octave, &dev_k, &step, &numSteps, &isOctaveCalkNeed};
 	cudaLaunchCooperativeKernel((void *)Perlin1D_kernel<T>, blocksPerGrid, threadsPerBlock, args, 0, 0);/**/
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "Perlin1D_kernel launch failed: " << cudaGetErrorString(cudaStatus) << "\r\n";
+		std::cout << stderr << ": Perlin1D_kernel launch failed: " << cudaGetErrorString(cudaStatus) << "\r\n";
 		goto Error;
 	}
 
@@ -245,19 +256,21 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaDeviceSynchronize returned " << cudaGetErrorString(cudaStatus) << " after launching Perlin1D_kernel!\r\n";
+		std::cout << stderr << ": cudaDeviceSynchronize returned " << cudaGetErrorString(cudaStatus) << " after launching Perlin1D_kernel!\r\n";
 		goto Error;
 	}
 
 	// Выполняем наложение октав на получившийся шум.
 	if(octaveNum)
-		Perlin1Doctave_shared_kernel<T> <<<blocksPerGrid, threadsPerBlock>>>
-			(dev_res, dev_octave, resultDotsCols, octaveNum);
-
+		if(resultDotsCols <= 32 * 2048 / sizeof(T)) // если вся октава помещается в разделяемую память, вызываем простое ядро
+			Perlin1Doctave_shared_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, resultDotsCols, octaveNum);
+		else // если октава не помещается целиком, вызываем сложное ядро.
+			Perlin1Doctave_shared_unlimited_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, resultDotsCols, octaveNum);
+		
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "Perlin1Doctave_shared_kernel launch failed: " << cudaGetErrorString(cudaStatus) << "\r\n";
+		std::cout << stderr << ": Perlin1Doctave_shared(_unlimited)_kernel launch failed: " << cudaGetErrorString(cudaStatus) << "\r\n";
 		goto Error;
 	}
 
@@ -265,19 +278,19 @@ cudaError_t Perlin1DWithCuda(T *res, const T *k, T step, uint32_t numSteps, uint
 	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaDeviceSynchronize returned " << cudaGetErrorString(cudaStatus) << " after launching Perlin1Doctave_shared_kernel!\r\n";
+		std::cout << stderr << ": cudaDeviceSynchronize returned " << cudaGetErrorString(cudaStatus) << " after launching Perlin1Doctave_shared(_unlimited)_kernel!\r\n";
 		goto Error;
 	}
 
 	// Copy output vector from GPU buffer to host memory.
-	cudaStatus = cudaMemcpy(res, dev_res, resultDotsCols * sizeof(T), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(noise, dev_noise, resultDotsCols * sizeof(T), cudaMemcpyDeviceToHost);
 	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << "cudaMemcpy failed!\r\n";
+		std::cout << stderr << ": cudaMemcpy failed!\r\n";
 		goto Error;
 	}
 
 Error:
-	cudaFree(dev_res);
+	cudaFree(dev_noise);
 	cudaFree(dev_octave);
 	cudaFree(dev_k);
 

@@ -27,8 +27,8 @@ bool readFromFile(std::string *accumulator, const GLchar *pathToFile) {
 int main() {
 	// Data in stack
 	constexpr uint32_t controlPoints = 6;
-	constexpr uint32_t numSteps = 4096; // шум fp32 длиной в 16380 значений
-	constexpr uint32_t octaveNum = 1;
+	constexpr uint32_t numSteps = 40000;
+	constexpr uint32_t octaveNum = 15;
 	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
 	constexpr float step = 1.0f / numSteps;
 	constexpr float k[controlPoints] = {.6f, -.2f, 1.0f, -.6f, -.1f, .6f}; // значения наклонов на углах отрезков (последний наклон равен первому)

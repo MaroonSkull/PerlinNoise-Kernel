@@ -80,42 +80,52 @@ template <typename T>
 __global__
 void Perlin1Doctave_shared_kernel(T *noise, const T *octave, uint32_t size, uint32_t octaveNum) {
 	// выделяем разделяемую память для октав.
-	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
-	__shared__ T sharedOctave[sharedOctaveLength];
 	/* используем 32KB памяти, на всех более-менее современных архитектурах (CC 3.7+)
 	* именно такое значение позволит запускать минимум 2 блока на одном sm.
 	* Это приведёт к потенциальной 100% занятости устройства.
-	* Так же это даёт 8192 fp32 значения, или 4096 fp64.
-	*/
+	* Так же это даёт 8192 fp32 значения, или 4096 fp64. */
+	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
+	__shared__ T sharedOctave[sharedOctaveLength];
 
 	uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-	if(id >= size) return;
 
 	if(size > 2*sharedOctaveLength) {
 		if (id == 0) printf("size = %d, 2*sharedOctaveLength = %d. exit.\r\n\r\n", size, 2*sharedOctaveLength);
 		return;
 	}
 
-	// Сохраняем в разделяемой памяти первую октаву шума
-	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
-	// Выполняем целочисленное деление с округлением вверх, чтобы скопировать всю октаву.
-	uint32_t maxI = (size % 32 == 0) ? (size / 32) : (size / 32 + 1);
-	for(uint32_t i = 0; i < maxI; i++) {
-		uint32_t sharedId = 32 * i + threadIdx.x;
+	// Сохраняем в разделяемой памяти блока первую октаву шума.
+	/* Нам необходимо, чтобы каждый блок имел локальную копию первой октавы,
+	* поэтому каждый блок в цикле копирует в свою разделяемую память октаву
+	* из глобальной памяти последовательно. Это наиболее оптимизированный
+	* режим чтения данных из глобальной памяти в разделяемую (coalesced).
+	* Каждый поток в блоке выполнит операцию копирования вплоть до maxI раз,
+	* где maxI = размер октавы / размер блока, округлённое вверх до целого.
+	* Заметим, что maxI - это не что иное, как количество блоков в сетке,
+	* раздёлённое на 2 с округлением вверх. Деление n на d с округлением
+	* быстрее всего реализовать с помощью нехитрого преобразования:
+	* (n+d-1)/d. Поскольку мы делим на 2, можно записать: (n+2-1)/2 = (n+1)/2.
+	* Деление на 2, как всем известно, можно заменить на битовый сдвиг.
+	* Так вычисление maxI можно заменить на (gridDim.x + 1) >> 1 */
+	for(uint32_t i = 0; i < (gridDim.x+1) >> 1; i++) {
+		uint32_t sharedId = blockDim.x * i + threadIdx.x;
 		if(size > 2 * sharedId) // контроллируем выход за пределы массива
-			sharedOctave[sharedId] = octave[sharedId] * 0.5;
+			sharedOctave[sharedId] = octave[sharedId];
 	}
 
 	// Синхронизируем выполнение на уровне блока.
 	__syncthreads();
 	// На этом моменте вся первая октава записана в разделяемую память данного блока
-		
+	if(id >= size) return;
+
 	// Применяем наложение октав, каждый раз основываясь на предыдущей октаве
 	for(int j = 1; j <= octaveNum; j++) {
 		int octavePov = 1 << j;
-		for(int i = 0; i < octavePov; i++) {
-			if((id < (i + 1) * size / octavePov) && (id >= i * size / octavePov))
+		for(int i = 0; i < octavePov; i++) { // здесь мб будет смысл запихнуть if(выполнился поток) break;, забенчить потом
+			if((id >= i * size / octavePov) && (id < (i + 1) * size / octavePov)) {
 				noise[id] += sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
+				break;
+			}
 		}
 	}
 }
@@ -135,40 +145,124 @@ template <typename T>
 __global__
 void Perlin1Doctave_shared_unlimited_kernel(T *noise, const T *octave, uint32_t size, uint32_t octaveNum) {
 	// выделяем разделяемую память для октав.
-	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
-	__shared__ T sharedOctave[sharedOctaveLength];
 	/* используем 32KB памяти, на всех более-менее современных архитектурах (CC 3.7+)
 	* именно такое значение позволит запускать минимум 2 блока на одном sm.
 	* Это приведёт к потенциальной 100% занятости устройства.
-	* Так же это даёт 8192 fp32 значения, или 4096 fp64.
-	*/
+	* Так же это даёт 8192 fp32 значения, или 4096 fp64. */
+	constexpr uint32_t sharedOctaveLength = 32 * 1024 / sizeof(T);
+	__shared__ T sharedOctave[sharedOctaveLength];
 
 	uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-	if(id >= size) return;
 
-	noise[id] = -1.f;
+	/* Повторяем вычисления, каждый раз обрабатывая ту часть октавы, которая помещается в разделяемую память
+	* Повторить вычисления придётся numOfOctaveCalc раз, где numOfOctaveCalc = ceil(размер октавы/размер разделяемой памяти)
+	* = ceil(ceil(size/2) / sharedOctaveLength) = [ceil(a/b) = floor((a+b-1)/b)] = ceil(floor((size+1) / 2) / sharedOctaveLength) 
+	* = floor((floor((size+1) / 2) + sharedOctaveLength - 1) / sharedOctaveLength) =
+	* = (((size+1) >> 1) + sharedOctaveLength - 1) / sharedOctaveLength;*/
+	uint32_t numOfOctaveCalc = (((size + 1) >> 1) + sharedOctaveLength - 1) / sharedOctaveLength;
+	for(uint32_t i = 0; i < numOfOctaveCalc; i++) {
+		// Сохраняем в разделяемой памяти часть первой октавы шума.
+		
+		// Защита (для каждого цикла после первого) - ждём, пока все операции с разделяемой памятью закончатся, перед тем, как её менять.
+		__syncthreads();
 
-	// Сохраняем в разделяемой памяти первую октаву шума
-	// 32 - warp size, именно столько потоков на всех картах nvidia параллельно выполняют этот код.
-	// Выполняем целочисленное деление с округлением вверх, чтобы скопировать всю октаву.
-	uint32_t maxI = (sharedOctaveLength % blockDim.x == 0) ? (sharedOctaveLength / blockDim.x) : (sharedOctaveLength / blockDim.x + 1);
-	for(uint32_t i = 0; i < maxI; i++) {
-		uint32_t sharedId = blockDim.x * i + threadIdx.x;
-		if(size > 2 * sharedId) // контроллируем выход за пределы массива
-			sharedOctave[sharedId] = octave[sharedId] * 0.5;
-	}
-
-	// Синхронизируем выполнение на уровне блока.
-	__syncthreads();
-	// На этом моменте вся первая октава записана в разделяемую память данного блока
-
-	// Применяем наложение октав, каждый раз основываясь на предыдущей октаве
-	for(int j = 1; j <= octaveNum; j++) {
-		int octavePov = 1 << j;
-		for(int i = 0; i < octavePov; i++) {
-			if((id < (i + 1) * size / octavePov) && (id >= i * size / octavePov))
-				noise[id] = sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
+		// Нам необходимо, чтобы каждый блок имел локальную копию части первой октавы
+		//uint32_t control = sharedOctaveLength < (size + 1) >> 1 ? sharedOctaveLength : (size + 1) >> 1; // учитываем оба случая, когда мало разделяемой или когда мало шума
+		uint32_t maxJ = (sharedOctaveLength + blockDim.x - 1) / blockDim.x;
+		for(uint32_t j = 0; j < maxJ; j++) {
+			uint32_t globalId = sharedOctaveLength * i + blockDim.x * j + threadIdx.x; // тут min(blockDim, realDim)
+			uint32_t sharedId = blockDim.x * j + threadIdx.x;
+			if(sharedId < sharedOctaveLength) // контроллируем выход за пределы массива
+				sharedOctave[sharedId] = octave[globalId];
 		}
+
+		// Синхронизируем выполнение на уровне блока.
+		__syncthreads();
+		// На этом моменте вся часть первой октавы, которая помещается в разделяемую память, записана в неё
+		if(id >= size) continue;
+
+		// применяем наложение первой октавы
+		/*uint32_t globalMin = 0;
+		uint32_t globalMax = size / 2;
+		uint32_t sharedMin = sharedOctaveLength * i + globalMin;
+		uint32_t sharedMax = sharedOctaveLength * (i + 1) + globalMin;
+		uint32_t sharedId = id - sharedMin;
+
+		uint32_t globalMin2 = size / 2;										// 40962
+		uint32_t globalMax2 = size;											// 81925
+		uint32_t sharedMin2 = sharedOctaveLength * i + globalMin2;			// 40962 - 49154 - 57346 - 65538 - 73730 - 81922
+		uint32_t sharedMax2 = sharedOctaveLength * (i + 1) + globalMin2;	// 49154 - 57346 - 65538 - 73730 - 81922 - 90114
+		uint32_t sharedId2 = id - sharedMin2;								// 49153-40962=8191
+		
+		if((id >= globalMin) && (id < globalMax) && (id >= sharedMin) && (id < sharedMax)) {
+			if(sharedId >= sharedOctaveLength || sharedId < 0) printf("1, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId);
+			else noise[id] = sharedOctave[sharedId];
+		}
+		else if((id >= globalMin2) && (id < globalMax2) && (id >= sharedMin2) && (id < sharedMax2)) {
+			if(sharedId2 >= sharedOctaveLength || sharedId < 0) printf("2, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId2);
+			else noise[id] = sharedOctave[sharedId2];
+		}/**/
+
+		// применяем наложение второй октавы
+		/*uint32_t globalMin = 0 * size / 4;
+		uint32_t globalMax = 1 * size / 4;
+		uint32_t sharedMin = sharedOctaveLength / 2 * i + globalMin;
+		uint32_t sharedMax = sharedOctaveLength / 2 * (i + 1) + globalMin;
+		uint32_t sharedId = id - sharedMin;
+
+		uint32_t globalMin2 = 1 * size / 4;
+		uint32_t globalMax2 = 2 * size / 4;
+		uint32_t sharedMin2 = sharedOctaveLength / 2 * i + globalMin2;
+		uint32_t sharedMax2 = sharedOctaveLength / 2 * (i + 1) + globalMin2;
+		uint32_t sharedId2 = id - sharedMin2;
+
+		uint32_t globalMin3 = 2 * size / 4;
+		uint32_t globalMax3 = 3 * size / 4;
+		uint32_t sharedMin3 = sharedOctaveLength / 2 * i + globalMin3;
+		uint32_t sharedMax3 = sharedOctaveLength / 2 * (i + 1) + globalMin3;
+		uint32_t sharedId3 = id - sharedMin3;
+
+		uint32_t globalMin4 = 3 * size / 4;
+		uint32_t globalMax4 = 4 * size / 4;
+		uint32_t sharedMin4 = sharedOctaveLength / 2 * i + globalMin4;
+		uint32_t sharedMax4 = sharedOctaveLength / 2 * (i + 1) + globalMin4;
+		uint32_t sharedId4 = id - sharedMin4;
+
+		if((id >= globalMin) && (id < globalMax) && (id >= sharedMin) && (id < sharedMax)) {
+			if(sharedId*2 >= sharedOctaveLength) printf("1, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId * 2);
+			else noise[id] = sharedOctave[sharedId*2] / 2;
+		}
+		else if((id >= globalMin2) && (id < globalMax2) && (id >= sharedMin2) && (id < sharedMax2)) {
+			if(sharedId2 * 2 >= sharedOctaveLength) printf("2, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId2 * 2);
+			else noise[id] = sharedOctave[sharedId2 * 2] / 2;
+		}
+		else if((id >= globalMin3) && (id < globalMax3) && (id >= sharedMin3) && (id < sharedMax3)) {
+			if(sharedId3 * 2 >= sharedOctaveLength) printf("3, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId3 * 2);
+			else noise[id] = sharedOctave[sharedId3 * 2] / 2;
+		}
+		else if((id >= globalMin4) && (id < globalMax4) && (id >= sharedMin4) && (id < sharedMax4)) {
+			if(sharedId4 * 2 >= sharedOctaveLength) printf("4, outOfRangeAdress, id = %d, sharedId = %d\r\n", id, sharedId4 * 2);
+			else noise[id] = sharedOctave[sharedId4 * 2] / 2;
+		}/**/
+
+		// Применяем наложение октав, каждый раз основываясь на предыдущей октаве
+		for(int j = 1; j <= octaveNum; j++) {
+			int octavePov = 1 << j;
+			for(int k = 0; k < octavePov; k++) {
+				uint32_t globalMin = k * size / octavePov;
+				uint32_t globalMax = (k + 1) * size / octavePov;
+				uint32_t sharedMin = sharedOctaveLength / (octavePov/2) * i + globalMin;
+				uint32_t sharedMax = sharedOctaveLength / (octavePov/2) * (i + 1) + globalMin;
+				int32_t sharedId = id - sharedMin;
+				if((id >= globalMin) && (id < globalMax) && (id >= sharedMin) && (id < sharedMax)) {
+					if(sharedId * (octavePov >> 1) >= sharedOctaveLength) printf("outOfRangeAdress! k = %d, id = %d, sharedId = %d, octavePov>>1 = %d\r\n", k, id, sharedId, octavePov >> 1);
+					else {
+						noise[id] += sharedOctave[sharedId * (octavePov >> 1)] / (octavePov >> 1);
+						break;
+					}
+				}
+			}
+		}/**/
 	}
 }
 
@@ -262,7 +356,7 @@ cudaError_t Perlin1DWithCuda(T *noise, const T *k, T step, uint32_t numSteps, ui
 
 	// Выполняем наложение октав на получившийся шум.
 	if(octaveNum)
-		if(resultDotsCols <= 32 * 2048 / sizeof(T)) // если вся октава помещается в разделяемую память, вызываем простое ядро
+		if(resultDotsCols <= 2 * 32 * 1024 / sizeof(T)) // если вся октава помещается в разделяемую память, вызываем простое ядро
 			Perlin1Doctave_shared_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, resultDotsCols, octaveNum);
 		else // если октава не помещается целиком, вызываем сложное ядро.
 			Perlin1Doctave_shared_unlimited_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, resultDotsCols, octaveNum);

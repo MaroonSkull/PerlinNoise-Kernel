@@ -82,7 +82,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <CudaCompile Include="Kernels.cu" />
-    <CudaCompile Include="Main.cu" />
+    <CudaCompile Include="Main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\..\..\OpenGL\src\glad.c" />

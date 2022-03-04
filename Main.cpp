@@ -27,7 +27,7 @@ bool readFromFile(std::string *accumulator, const GLchar *pathToFile) {
 int main() {
 	// Data in stack
 	constexpr uint32_t controlPoints = 6;
-	constexpr uint32_t numSteps = 40000;
+	constexpr uint32_t numSteps = 4000;
 	constexpr uint32_t octaveNum = 15;
 	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
 	constexpr float step = 1.0f / numSteps;

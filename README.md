@@ -1,7 +1,6 @@
 # PerlinNoise
 Simple project where I'm trying to create Perlin noise generation algorithm from scratch using nvidia CUDA.  
 Also, in this project I'm learning how to work with OpenGL.
----
 
 List of targets
 ==
@@ -32,7 +31,8 @@ OpenGL
 - [ ] displaying 2D Perlin noise...
   - [ ] ...as a 2d texture
   - [ ] ...as a height map
-    - [ ] make it interactive
+
+- [ ] make it interactive
 
 Benchmarking
 --
@@ -54,6 +54,7 @@ C++
 - [ ] Structure for storing benchmarking results
 - [ ] Structure for storing the data of the function under test
 - [ ] Wrap functions for Perlin noise generation in a class
+- [ ] Create an enum with errors provided by the program
 
 Project design
 --

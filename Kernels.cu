@@ -16,6 +16,20 @@ T lerp_kernel(T k0, T k1, T t) {
 }
 
 /**
+* Сигмоидальная функция из семейства smoothstep, используется для создания более интенсивного градиента шума.
+* Подробнее см. https://en.wikipedia.org/wiki/Smoothstep#Variations
+*
+* \param x – значение градиента (он же t)
+*
+* \return возвращает классический smoothstep(x). Используется оригинальный первый полином.
+*/
+template <typename T>
+__device__ inline
+T smoothstep_kernel(T x) {
+	return fma(static_cast<T>(2), x, static_cast<T>(-3)) * -x * x; // 3 * x^2 - 2 * x^3 = -x * x * (2 * x - 3);
+}
+
+/**
 * Сигмоидальная функция из семейства smoothstep, используется для создания более интенсивного градиента шума. 
 * Подробнее см. https://en.wikipedia.org/wiki/Smoothstep#Variations
 * 
@@ -49,15 +63,15 @@ __global__
 void Perlin1D_kernel(T *noise, T *octave, const T *k, uint32_t size, T step, uint32_t numSteps, bool isOctaveCalkNeed) {
 	uint32_t id = blockIdx.x*blockDim.x+threadIdx.x;// [0..] – всего точек для просчёта
 	if(id >= size) return;
-	uint32_t n = static_cast<T>(id) * step;			// 0 0 / 1 1 / 2 2 / .. – какие точки к каким контрольным точкам принадлежат
-	uint32_t dotNum = id % numSteps;				// 0 1 / 0 1 / 0 1 / .. – какую позицию занимает точка между левой и правой функцией
-	T t = dotNum * step;							// 0.33 0.66 / 0.33 0.66 / .. – численное значение точки для интерполяции
-	t = smootherstep_kernel<T>(t);					// Применяем сигмоидальную(на промежутке [0, 1]) функцию, реализуя градиент
-	T y0 = k[n] * t;								// kx+b (b = 0)
-	T y1 = k[n+1] * (t - 1);						// kx+b (b = -k) = k(x-1)
-	noise[id] = lerp_kernel<T>(y0, y1, t);			// Интерполяцией находим шум, пишем сразу в выходной массив
+	uint32_t n = id * step;					// 0 0 0 / 1 1 1 / 2 2 2 / .. – какие точки к каким контрольным точкам принадлежат
+	uint32_t dotNum = id % numSteps;		// 0 1 2 / 0 1 2 / 0 1 2 / .. – позиция точки между левым и правым значением
+	T t = dotNum * step;					// 0.0 0.33 0.66 / 0 0.33 0.66 / .. – численное значение точки для интерполяции
+	t = smoothstep_kernel<T>(t);			// Применяем сигмоидальную(на промежутке [0, 1]) функцию, реализуя градиент
+	T y0 = k[n] * t;						// kx+b (b = 0)
+	T y1 = k[n+1] * (t - 1);				// kx+b (b = -k) = k(x-1)
+	noise[id] = lerp_kernel<T>(y0, y1, t);	// Интерполяцией находим шум, пишем сразу в выходной массив
 
-	// Если пользователю нужно вычислять октавы, сохраняем в памяти первую окатву шума
+	// Если нужно вычислять октавы, сохраняем в памяти первую окатву шума
 	if(isOctaveCalkNeed)
 		// Первая октава занимает в два раза меньше памяти, чем исходный шум
 		if(id % 2 == 0)
@@ -121,6 +135,7 @@ void Perlin1Doctave_shared_kernel(T *noise, const T *octave, uint32_t size, uint
 	// Применяем наложение октав, каждый раз основываясь на предыдущей октаве
 	for(int j = 1; j <= octaveNum; j++) {
 		int octavePov = 1 << j;
+		#pragma unroll
 		for(int i = 0; i < octavePov; i++) { // здесь мб будет смысл запихнуть if(выполнился поток) break;, забенчить потом
 			if((id >= i * size / octavePov) && (id < (i + 1) * size / octavePov)) {
 				noise[id] += sharedOctave[(id - i * size / octavePov) * (octavePov >> 1)] / (octavePov >> 1);
@@ -248,6 +263,7 @@ void Perlin1Doctave_shared_unlimited_kernel(T *noise, const T *octave, uint32_t 
 		// Применяем наложение октав, каждый раз основываясь на предыдущей октаве
 		for(int j = 1; j <= octaveNum; j++) {
 			int octavePov = 1 << j;
+			#pragma unroll
 			for(int k = 0; k < octavePov; k++) {
 				uint32_t globalMin = k * size / octavePov;
 				uint32_t globalMax = (k + 1) * size / octavePov;
@@ -329,7 +345,7 @@ cudaError_t Perlin1DWithCuda(T *noise, const T *k, T step, uint32_t numSteps, ui
 	// 256 взято с потолка из каких-то общих соображений, забейте.
 	if(resultDotsCols > 256) {
 		threadsPerBlock.x = 256;
-		blocksPerGrid.x = (resultDotsCols % 256 == 0) ? resultDotsCols / 256 : resultDotsCols / 256 + 1;
+		blocksPerGrid.x = (resultDotsCols+255) / 256;
 	}
 
 	// Launch a kernel on the GPU with one thread for each element.
@@ -389,4 +405,14 @@ Error:
 	cudaFree(dev_k);
 
 	return cudaStatus;
+}
+
+extern "C" cudaError_t
+Perlin1DWithCuda_f(float *noise, const float *k, float step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum) {
+	return Perlin1DWithCuda<float>(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
+}
+
+extern "C" cudaError_t
+Perlin1DWithCuda_d(double *noise, const double *k, double step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum) {
+	return Perlin1DWithCuda<double>(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
 }

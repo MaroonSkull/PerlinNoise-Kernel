@@ -50,6 +50,8 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;WIN64;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -59,6 +61,7 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <NvccCompilation>compile</NvccCompilation>
+      <CodeGeneration>compute_75,sm_75;%(CodeGeneration)</CodeGeneration>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -86,13 +89,18 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\..\..\..\OpenGL\src\glad.c" />
+    <ClCompile Include="Shader.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Definitions.h" />
+    <ClInclude Include="Shader.h" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Shader.fs" />
-    <None Include="Shader.vs" />
+    <None Include="fragmentShader1D.fs" />
+    <None Include="fragmentShader2D.fs" />
+    <None Include="vertexShader1D_linear.vs" />
+    <None Include="vertexShader1D_noise.vs" />
+    <None Include="vertexShader2D.vs" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

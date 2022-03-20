@@ -1,43 +1,16 @@
 ﻿#include "Definitions.h"
 
-int main() {
-	//return Perlin1D<float>("vertexShader1D_noise.vs", "fragmentShader1D.fs");
-	return Perlin2D<float>("vertexShader2D.vs", "fragmentShader2D.fs");
-}
-
-template <typename T>
-int Perlin2D(const char *vertexShaderPath, const char *fragmentShaderPath) {
-	// Create OpenGL 3.3 context
-	glfwInit();
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	// Create window
-	GLFWwindow *window = glfwCreateWindow(640, 480, "Perlin Noise Generator", nullptr, nullptr);
-	if(window == nullptr) {
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
-	}
-	glfwMakeContextCurrent(window);
-
-	// Setting up viewport
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback_texture_edition); // Устанавливаем callback на изменение размеров окна
-
-	// Initialize GLAD
-	if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		return -2;
-	}
-
-	Shader shader(vertexShaderPath, fragmentShaderPath);
-
+namespace P2D {
 	float verticess[] = {
-		-0.5,  0.5, 0.0,	// top left
-		 0.5,  0.5, 0.0,	// top right
-		-0.5, -0.5, 0.0,	// bottom left
-		 0.5, -0.5, 0.0,	// bottom right
+		-1.0f,  1.0f, 0.0f,	0.0f, 1.0f,	// top left
+		 1.0f,  1.0f, 0.0f,	1.0f, 1.0f,	// top right
+		-1.0f, -1.0f, 0.0f,	0.0f, 0.0f,	// bottom left
+		 1.0f, -1.0f, 0.0f,	1.0f, 0.0f	// bottom right
+	};
+
+	float k[] = {
+		-1, 1,
+		0.5, -0,5
 	};
 
 	uint32_t indices[] = {
@@ -45,38 +18,108 @@ int Perlin2D(const char *vertexShaderPath, const char *fragmentShaderPath) {
 		1, 2, 3
 	};
 
-	uint32_t VAO, VBO, EBO, texture;
-	glGenTextures(1, &texture);
+	uint32_t controlPointsX = 2;
+	uint32_t controlPointsY = 2;
+	uint32_t numStepX = 5;
+	uint32_t numStepY = 5;
+	uint8_t octaveNum = 0;
 
+	float stepX = 1.f / numStepX;
+	float stepY = 1.f / numStepY;
+
+	std::pair<uint32_t&, uint32_t&> controlPoints(controlPointsX, controlPointsY);
+	std::pair<uint32_t&, float&> dX(numStepX, stepX);
+	std::pair<uint32_t&, float&> dY(numStepY, stepY);
+}
+
+namespace global {
+	GLFWwindow *window = nullptr;
+	uint32_t w = 256;
+	uint32_t h = 256;
+	std::pair<uint32_t&, uint32_t&> dimensions(w, h);
+	GLuint textureId;
+	cudaGraphicsResource_t cudaTexture;
+	unsigned char *data = nullptr;
+}
+
+namespace CuGL {
+	void *cuda_dev_render_buffer; // Cuda buffer for initial render
+	cudaGraphicsResource *cuda_tex_resource;
+	GLuint opengl_tex_cuda;  // OpenGL Texture for cuda result
+	size_t size_tex_data;
+}
+
+bool initGLFW() {
+	// Create OpenGL 3.3 context
+	if(!glfwInit()) return false;
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+	return true;
+}
+
+bool initWindow(GLFWframebuffersizefun resizeCallback) {
+	// Create window
+	global::window = glfwCreateWindow(global::w, global::h, "Perlin Noise Generator", nullptr, nullptr);
+	if(global::window == nullptr) {
+		std::cout << "Failed to create GLFW window" << std::endl;
+		glfwTerminate();
+		return false;
+	}
+	glfwMakeContextCurrent(global::window);
+
+	// Setting up viewport
+	glfwSetFramebufferSizeCallback(global::window, resizeCallback); // Устанавливаем callback на изменение размеров окна
+	return true;
+}
+
+void bufferSetup(uint32_t *VAO, uint32_t *VBO, uint32_t *EBO) {
 	// Create vertex array object.
-	glGenVertexArrays(1, &VAO);
-	std::cout << "Vertex array object have been created with ID = " << VAO << "\r\n";
+	glGenVertexArrays(1, VAO);
+	std::cout << "Vertex array object have been created with ID = " << *VAO << "\r\n";
 
 	// Create vertex buffer object.
-	glGenBuffers(1, &VBO);
-	std::cout << "Vertex buffer object have been created with ID = " << VBO << "\r\n";
+	glGenBuffers(1, VBO);
+	std::cout << "Vertex buffer object have been created with ID = " << *VBO << "\r\n";
 
 	// Create element buffer object.
-	glGenBuffers(1, &EBO);
-	std::cout << "element buffer object have been created with ID = " << EBO << "\r\n";
+	glGenBuffers(1, EBO);
+	std::cout << "element buffer object have been created with ID = " << *EBO << "\r\n";
 
 	// Связываем объект массива вершин.
-	glBindVertexArray(VAO);
-
+	glBindVertexArray(*VAO);
 	// Связываем буфер. Теперь все вызовы буфера с параметром GL_ARRAY_BUFFER
 	// будут использоваться для конфигурирования созданного буфера VBO
-	glBindBuffer(GL_ARRAY_BUFFER, VBO);
+	glBindBuffer(GL_ARRAY_BUFFER, *VBO);
 	// Копируем данные вершин в память связанного буфера
-	glBufferData(GL_ARRAY_BUFFER, sizeof(verticess), verticess, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(P2D::verticess), P2D::verticess, GL_STATIC_DRAW);
 
 	// Пробуем биндить объект буфера эллементов
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, *EBO);
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(P2D::indices), P2D::indices, GL_STATIC_DRAW);
+
+	// textures
+	glGenTextures(1, &global::textureId);
+
+	glBindTexture(GL_TEXTURE_2D, global::textureId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, global::w, global::h, 0, GL_RGBA, GL_UNSIGNED_BYTE, global::data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	delete[] global::data;
+	// set the texture wrapping parameters
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	// set texture filtering parameters
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+
 
 	// Сообщаем, как OpenGL должен интерпретировать данные вершин,
 	// которые мы храним в verticess[]
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)0);	// position
 	glEnableVertexAttribArray(0);
+	glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void *)(3 * sizeof(float)));	// texture
+	glEnableVertexAttribArray(1);
 
 	// note that this is allowed, the call to glVertexAttribPointer registered VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
 	glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -84,25 +127,69 @@ int Perlin2D(const char *vertexShaderPath, const char *fragmentShaderPath) {
 	// You can unbind the VAO afterwards so other VAO calls won't accidentally modify this VAO, but this rarely happens. Modifying other
 	// VAOs requires a call to glBindVertexArray anyways so we generally don't unbind VAOs (nor VBOs) when it's not directly necessary.
 	glBindVertexArray(0);
+}
 
-	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+int main() {
+	//return Perlin1D<float>("vertexShader1D_noise.vs", "fragmentShader1D.fs");
+	return Perlin2D<float>("vertexShader2D.vs", "fragmentShader2D.fs");
+}
+
+template <typename T>
+int Perlin2D(const char *vertexShaderPath, const char *fragmentShaderPath) {
+	if(!initGLFW()) {
+		std::cout << "GLFW::ERROR: \"GLFW hasn't been initialized\"" << std::endl;
+		return -15;
+	}
+
+	if(!initWindow(framebuffer_size_callback_texture_edition)) {
+		std::cout << "WINDOW::ERROR: \"Window hasn't been initialized\"" << std::endl;
+		return -16;
+	}
+
+	// Initialize GLAD
+	if (!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
+		std::cout << "GLAD::ERROR: \"GLAD hasn't been initialized\"" << std::endl;
+		return -17;
+	}
+
+	Shader shader(vertexShaderPath, fragmentShaderPath);
+
+	global::data = new unsigned char[global::w * global::h * 4];
+
+
+
+	//cudaGraphicsGLRegisterImage(cuda_tex, *gl_tex, GL_TEXTURE_2D, cudaGraphicsRegisterFlagsWriteDiscard);
+	
+	//cudaMalloc(&CuGL::cuda_dev_render_buffer, CuGL::size_tex_data);
+
+	Perlin2DWithCuda(global::data, P2D::k, global::dimensions, P2D::controlPoints, P2D::dX, P2D::dY, P2D::octaveNum);
+
+
+
+
+	uint32_t VAO, VBO, EBO;
+
+	bufferSetup(&VAO, &VBO, &EBO);
+
+	//glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	// Create render cycle
-	while(!glfwWindowShouldClose(window)) {
+	while(!glfwWindowShouldClose(global::window)) {
 		// Input processing
-		processInput(window);
+		processInput(global::window);
 
 		// Rendering
 		// Активируем созданный объект
 		shader.use();
 
+		glBindTexture(GL_TEXTURE_2D, global::textureId);
 		// Применяем всё, что применяли до этого
 		glBindVertexArray(VAO);
 		// Рисуем свои треугольники
-		glDrawElements(GL_TRIANGLES, sizeof(indices) / sizeof(indices[0]), GL_UNSIGNED_INT, 0);
+		glDrawElements(GL_TRIANGLES, sizeof(P2D::indices) / sizeof(P2D::indices[0]), GL_UNSIGNED_INT, 0);
 		glBindVertexArray(0);
 
 		// Swap buffers
-		glfwSwapBuffers(window);
+		glfwSwapBuffers(global::window);
 		glfwPollEvents();
 	}
 
@@ -125,7 +212,7 @@ int Perlin1D(const char *vertexShaderPathNoise, const char *fragmentShaderPath) 
 	const char *vertexShaderPathLinear = "vertexShader1D_linear.vs";
 	cudaError_t cudaStatus = cudaError::cudaErrorUnknown;
 	constexpr uint32_t controlPoints = 7;
-	constexpr uint32_t numSteps = 2000;
+	constexpr uint32_t numSteps = 200;
 	constexpr uint32_t octaveNum = 8;
 	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
 	constexpr T step = 1.0f / numSteps;
@@ -162,9 +249,9 @@ int Perlin1D(const char *vertexShaderPathNoise, const char *fragmentShaderPath) 
 
 	// Calculate Perlin in parallel.
 	if constexpr(std::is_same<T, float>::value)
-		cudaStatus = Perlin1DWithCuda_f(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
+		cudaStatus = Perlin1DWithCuda_f(noise, k, step, numSteps, controlPoints, octaveNum);
 	else
-		cudaStatus = Perlin1DWithCuda_d(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
+		cudaStatus = Perlin1DWithCuda_d(noise, k, step, numSteps, controlPoints, octaveNum);
 
 	if(cudaStatus != cudaSuccess) {
 		std::cout << stderr << ": Perlin1DWithCuda failed!\r\n";
@@ -188,7 +275,7 @@ int Perlin1D(const char *vertexShaderPathNoise, const char *fragmentShaderPath) 
 		}; // x, y на каждую из 2*controlPoints точек для прямых + 8 точек для осей OXY.
 		for(int i = 0; i < controlPoints; i++) {
 			float x0 = static_cast<T>(i) / (controlPoints - 1);
-			float deltaX = static_cast<T>(1) / (controlPoints - 1)/4;
+			float deltaX = static_cast<T>(1) / (controlPoints - 1) / 4;
 
 			ks[8 + 4 * i] = 2 * (x0 - deltaX) - 1;						// x left
 			ks[8 + 4 * i + 1] = (controlPoints - 1) * k[i] * -deltaX;	// y left
@@ -281,6 +368,22 @@ void framebuffer_size_callback(GLFWwindow *window, int32_t width, int32_t height
 void framebuffer_size_callback_texture_edition(GLFWwindow *window, int32_t width, int32_t height) {
 	//тут надо пересоздавать текстуру и перепривязывать её к cuda
 	glViewport(0, 0, width, height);
+
+	global::data = new unsigned char[width * height * 4];
+
+	for(uint32_t i = 0; i < width * height; i++) {
+		global::data[4 * i] = 255; //r
+		global::data[4 * i + 1] = 0; //g
+		global::data[4 * i + 2] = 0; //b
+		global::data[4 * i + 3] = 255; //A
+	}
+	glDeleteTextures(1, &global::textureId);
+	glGenTextures(1, &global::textureId);
+
+	glBindTexture(GL_TEXTURE_2D, global::textureId);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, global::data);
+	glGenerateMipmap(GL_TEXTURE_2D);
+	delete[] global::data;
 }
 
 // Обработка всех событий ввода: запрос GLFW о нажатии/отпускании клавиш на клавиатуре в данном кадре и соответствующая обработка данных событий

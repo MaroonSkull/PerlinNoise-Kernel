@@ -14,9 +14,17 @@
 
 // Объявляем функции
 extern "C" cudaError_t
-Perlin1DWithCuda_f(float *noise, const float *k, float step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum);
+Perlin1DWithCuda_f(float *noise, const float *k, float step, uint32_t numSteps, uint32_t controlPoints, uint32_t octaveNum);
 extern "C" cudaError_t
-Perlin1DWithCuda_d(double *noise, const double *k, double step, uint32_t numSteps, uint32_t controlPoints, uint32_t resultDotsCols, uint32_t octaveNum);
+Perlin1DWithCuda_d(double *noise, const double *k, double step, uint32_t numSteps, uint32_t controlPoints, uint32_t octaveNum);
+
+extern "C" cudaError_t
+Perlin2DWithCuda(unsigned char *noise, const float * k,
+	const std::pair<uint32_t, uint32_t> dimensions,
+	const std::pair<uint32_t, uint32_t> controlPoints,
+	const std::pair<uint32_t, float> dX,
+	const std::pair<uint32_t, float> dY,
+	const uint8_t octaveNum);
 
 // Pathes to source of OpenGL vertex shader & fragment 
 template <typename T>

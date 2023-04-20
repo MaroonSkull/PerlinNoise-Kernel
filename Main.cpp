@@ -1,226 +1,175 @@
-#include "Definitions.h"
-#include "Kernels.cu"
+п»ї// This is a personal academic project. Dear PVS-Studio, please check it.
+// PVS-Studio Static Code Analyzer for C, C++, C#, and Java: https://pvs-studio.com
 
-// Path to source of OpenGL vertex shader
-const GLchar *vertexShaderPath = "Shader.vs";
-// Path to source of fragment shader
-const GLchar *fragmentShaderPath = "Shader.fs";
+#include "Services/Definitions.hpp"
 
-bool readFromFile(std::string *accumulator, const GLchar *pathToFile) {
-	std::ifstream fileStream(pathToFile, std::ios::in);
+std::mt19937 gen{std::random_device{}()};
+std::normal_distribution vectorGenerator{.0, .5}; //95.45% Р·РЅР°С‡РµРЅРёР№ РІРЅСѓС‚СЂРё [-1, 1]
+std::uniform_int_distribution eventlyGen{2, 15};
+std::uniform_int_distribution dotsGen{10, 50};
 
-	if(!fileStream.is_open()) {	// Если не вышло открыть файл, возвращаем ошибку
-		std::cerr << "Could not read file " << pathToFile << ". File does not exist." << std::endl;
-		return false;
-	}
+// todo СЃРґРµР»Р°С‚СЊ Р»РѕРєР°Р»СЊРЅРѕР№, СЂР°Р·Р±РёС‚СЊ РЅР° РіР»РѕР±Р°Р»СЊРЅРѕРµ СЃРѕСЃС‚РѕСЏРЅРёРµ Рё РЅР° Р»РѕРєР°Р»СЊРЅС‹Рµ РјРµР»РєРёРµ
+Params p{[&]() -> float { return std::clamp(vectorGenerator(gen), -1., 1.); },
+		static_cast<uint32_t>(eventlyGen(gen)), static_cast<uint32_t>(dotsGen(gen)), static_cast<uint32_t>(eventlyGen(gen))};
 
-	std::string line = "";					// Создаём буфер
-	while(!fileStream.eof()) {				// Читаем в него файл построчно
-		std::getline(fileStream, line);
-		accumulator->append(line + "\n");
-	}
 
-	fileStream.close();	// Подметаем за собой
-	return true;
-}
+
+/*Params p1{[&]() -> float { return std::clamp(vectorGenerator(gen), -1., 1.); },
+		static_cast<uint32_t>(eventlyGen(gen)), static_cast<uint32_t>(dotsGen(gen)), static_cast<uint32_t>(eventlyGen(gen))};
+*/
 
 int main() {
-	// Data in stack
-	constexpr uint32_t controlPoints = 6;
-	constexpr uint32_t numSteps = 4000;
-	constexpr uint32_t octaveNum = 15;
-	constexpr uint32_t resultDotsCols = (controlPoints - 1) * numSteps;
-	constexpr float step = 1.0f / numSteps;
-	constexpr float k[controlPoints] = {.6f, -.2f, 1.0f, -.6f, -.1f, .6f}; // значения наклонов на углах отрезков (последний наклон равен первому)
-	// Perlin noise coords data in heap
-	float *noise = new float[resultDotsCols+1];
-	float *vertices = new float[3 * (resultDotsCols+1)]; //x, y, z to 1 dot -> length = 3*cols
+	try {
+	
+		Window MainWindow(1800, 600, "Perlin Noise Generator", GLFWErrorCallback, framebufferSizeCallback);
 
-	//for(int i = 0; i < resultDotsCols; i++)
-		//noise[i] = 0.f;
-	// Инициализируем z-координату графика 0
-	for(int i = 0; i < resultDotsCols+1; i++)
-		vertices[3 * i + 2] = 0.f;
+		/*Params p{
+			[&]() -> float {
+				return std::clamp(vectorGenerator(gen), -1., 1.);
+			},
+			static_cast<uint32_t>(eventlyGen(gen)),
+			static_cast<uint32_t>(dotsGen(gen)),
+			static_cast<uint32_t>(eventlyGen(gen))
+		};*/
 
-	// Create OpenGL 3.3 context
-	glfwInit();
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
-	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-
-	// Create window
-	GLFWwindow *window = glfwCreateWindow(1800, 600, "Perlin Noise Generator", nullptr, nullptr);
-	if(window == nullptr) {
-		std::cout << "Failed to create GLFW window" << std::endl;
-		glfwTerminate();
-		return -1;
+		PerlinNoise(MainWindow, "shaders/1D/1D_noise.vert", "shaders/1D/1D_white.vert", "shaders/1D/1D.frag");
+	
 	}
-	glfwMakeContextCurrent(window);
-
-	// Setting up viewport
-	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback); // Устанавливаем callback на изменение размеров окна
-
-	// Initialize GLAD
-	if(!gladLoadGLLoader((GLADloadproc)glfwGetProcAddress)) {
-		std::cout << "Failed to initialize GLAD" << std::endl;
-		return -2;
+	catch(const cudaWrp::ErrorException &e) {
+		std::cerr << e.getError();
+	}
+	catch(const std::exception &e) {
+		std::cerr << "Standard exception: " << e.what() << std::endl;
+	}
+	catch(const char *e) {
+		std::cerr << e << std::endl;
+	}
+	catch(...) {
+		std::cerr << "Unknown exception." << std::endl;
 	}
 
-	// Calculate Perlin in parallel.
-	cudaError_t cudaStatus = Perlin1DWithCuda<float>(noise, k, step, numSteps, controlPoints, resultDotsCols, octaveNum);
-	if(cudaStatus != cudaSuccess) {
-		std::cout << stderr << ": Perlin1DWithCuda failed!\r\n";
-		return -5;
-	}
-
-	{
-		// Save dots into 3d coords
-		for(int i = 0; i < resultDotsCols; i++) {
-			vertices[3 * i] = 2 * static_cast<float>(i) / static_cast<float>(resultDotsCols) - 1; // x = 2x(norm)-1, нормализуем и смещаем влево
-			vertices[3 * i + 1] = noise[i]; // y
-			/*std::cout << "x[" << i << "] = " << vertices[3 * i] << "\t"
-						<< "y[" << i << "] = " << vertices[3 * i + 1]	<< "\t"
-						<< "z[" << i << "] = " << vertices[3 * i + 2]	<< "\r\n";/**/
-		}
-		vertices[3 * resultDotsCols] = 1; // Последняя точка всегда равна нулю.
-		vertices[3 * resultDotsCols + 1] = 0;
-
-		// Create vertex array object.
-		uint32_t VAO;
-		glGenVertexArrays(1, &VAO);
-		std::cout << "Vertex array object have been created with ID = " << VAO << "\r\n";
-
-		// Связываем объект вершинного массива.
-		glBindVertexArray(VAO);
-
-		// Create vertex buffer object.
-		uint32_t VBO;
-		glGenBuffers(1, &VBO);
-		std::cout << "Vertex buffer object have been created with ID = " << VBO << "\r\n";
-
-		// Связываем буфер. Теперь все вызовы буфера с параметром GL_ARRAY_BUFFER
-		// будут использоваться для конфигурирования созданного буфера VBO
-		glBindBuffer(GL_ARRAY_BUFFER, VBO);
-
-		// Копируем данные вершин в память связанного буфера
-		glBufferData(GL_ARRAY_BUFFER, 3 * (resultDotsCols+1) * sizeof(*vertices), vertices, GL_STATIC_DRAW);
-
-		// Сообщаем, как OpenGL должен интерпретировать данные вершин,
-		// которые мы храним в vertices[]
-		glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void *)0);
-		glEnableVertexAttribArray(0);
-
-		// Create vertex shader
-		uint32_t vertexShader = glCreateShader(GL_VERTEX_SHADER);
-
-		// Create fragment shader
-		uint32_t fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
-
-		int32_t success;
-		char infoLog[512];
-
-		// Read vertex shader source code
-		{ // Изолируем временные переменные
-			std::string vs;
-			if(readFromFile(&vs, vertexShaderPath)) {
-				const char *vertexShaderSource = vs.c_str();
-				// Compile vertex shader source code
-				glShaderSource(vertexShader, 1, &vertexShaderSource, nullptr);
-				glCompileShader(vertexShader);
-				// Check vertex shader compile errors
-				glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &success);
-				if(!success) {
-					glGetShaderInfoLog(vertexShader, 512, nullptr, infoLog);
-					std::cout << "ERROR::SHADER::VERTEX::COMPILATION_FAILED\n" << infoLog << std::endl;
-					return -3;
-				}
-				else std::cout << "Vertex shader have been compiled!\r\n";
-			}
-			else return -10;
-		}
-
-		// Read vertex shader source code
-		{ // Изолируем временные переменные
-			std::string fs;
-			if(readFromFile(&fs, fragmentShaderPath)) {
-				const char *fragmentShaderSource = fs.c_str();
-				// compile fragment shader
-				glShaderSource(fragmentShader, 1, &fragmentShaderSource, nullptr);
-				glCompileShader(fragmentShader);
-				// Check fragment shader compile errors
-				glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &success);
-				if(!success) {
-					glGetShaderInfoLog(fragmentShader, 512, nullptr, infoLog);
-					std::cout << "ERROR::SHADER::FRAGMENT::COMPILATION_FAILED\r\n" << infoLog << "\r\n\r\n"
-						<< "Source code:\r\n" << fragmentShaderSource << "/end/\r\n";
-
-					return -4;
-				}
-				else std::cout << "Fragment shader have been compiled!\r\n";
-			}
-			else return -11;
-		}
-
-		// Создаём объект шейдерной программы
-		uint32_t shaderProgram = glCreateProgram();
-
-		// Прикрепляем наши шейдеры к шейдерной программе
-		glAttachShader(shaderProgram, vertexShader);
-		glAttachShader(shaderProgram, fragmentShader);
-		glLinkProgram(shaderProgram);
-
-		// Check shader program linking errors
-		glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-		if(!success) {
-			glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
-			std::cout << "ERROR::SHADER::PROGRAM::LINKING_FAILED\n" << infoLog << std::endl;
-			return -6;
-		}
-		else std::cout << "Shader program have been linked!\r\n";
-
-		// Delete the shaders as they're linked into our program now and no longer necessery
-		glDeleteShader(vertexShader);
-		glDeleteShader(fragmentShader);
-
-		// Create render cycle
-		while(!glfwWindowShouldClose(window)) {
-			// Input processing
-			processInput(window);
-
-			// Rendering
-			// Активируем созданный объект
-			glUseProgram(shaderProgram);
-
-			// Отменяем связывание???
-			glBindVertexArray(VAO);
-
-			// Рисуем ось OX
-
-
-			// Рисуем шум Перлина
-			glDrawArrays(GL_LINE_STRIP, 0, resultDotsCols+1);
-
-			// Swap buffers
-			glfwSwapBuffers(window);
-			glfwPollEvents();
-		}
-	}
-
-	// cudaDeviceReset must be called before exiting in order for profiling and
-	// tracing tools such as Nsight and Visual Profiler to show complete traces.
-	cudaDeviceReset();
-	// glfwTerminate must be called before exiting in order for clean up
 	glfwTerminate();
+	cudaWrp::destroyContext();
+	
 	return 0;
 }
 
-// Обработка ресайза окна
-void framebuffer_size_callback(GLFWwindow *window, int32_t width, int32_t height) {
+
+int PerlinNoise(Window &MainWindow, std::string_view vertexShaderPathNoise, std::string_view vertexShaderPathLinear, std::string_view fragmentShaderPath) {
+
+	Shader PlotShader(vertexShaderPathLinear, fragmentShaderPath);
+	Shader PerlinShader(vertexShaderPathNoise, fragmentShaderPath);
+
+	Background BackgroundLayer(MainWindow, p);
+	// todo СЂР°Р·Р±РёС‚СЊ Plot РЅР° СЃРµС‚РєСѓ Рё РЅР° РєР»Р°СЃСЃ РґР»СЏ СѓРіР»РѕРІС‹С… РЅР°РєР»РѕРЅРѕРІ
+	Plot PlotLayer(MainWindow, PlotShader, p);
+	//Plot PlotLayer1(MainWindow, PlotShader, p1);
+	Perlin PerlinLayer(MainWindow, PerlinShader, p);
+	//Perlin PerlinLayer1(MainWindow, PerlinShader, p1);
+	GUI GUILayer(MainWindow, p);
+
+	glfwSetScrollCallback(MainWindow.getWindow(), scrollCallback);
+	glfwSetKeyCallback(MainWindow.getWindow(), keyCallback);
+	// Create render cycle
+	while(!glfwWindowShouldClose(MainWindow.getWindow())) {
+		// Input processing
+		processInput(MainWindow.getWindow());
+
+		// Calculable
+		PlotLayer.calc();
+		//PlotLayer1.calc();
+		PerlinLayer.calc();
+		//PerlinLayer1.calc();
+		GUILayer.calc();
+
+		// Drawing
+		BackgroundLayer.draw();
+		PlotLayer.draw();
+		//PlotLayer1.draw();
+		PerlinLayer.draw();
+		//PerlinLayer1.draw();
+		GUILayer.draw();
+
+		// Swap buffers
+		glfwSwapBuffers(MainWindow.getWindow());
+		glfwPollEvents();
+	}
+
+	return 0;
+}
+
+// РћР±СЂР°Р±РѕС‚РєР° Р»СЋР±С‹С… РѕС€РёР±РѕРє GLFW
+void GLFWErrorCallback(int error, const char *description) {
+	std::cerr << stderr << std::endl << "Glfw Error " << error << ", " << description << std::endl;
+}
+
+// РћР±СЂР°Р±РѕС‚РєР° СЂРµСЃР°Р№Р·Р° РѕРєРЅР°
+void framebufferSizeCallback(GLFWwindow *window, int32_t width, int32_t height) {
 	glViewport(0, 0, width, height);
 }
 
-// Обработка всех событий ввода: запрос GLFW о нажатии/отпускании клавиш на клавиатуре в данном кадре и соответствующая обработка данных событий
+// РћР±СЂР°Р±РѕС‚РєР° РІСЃРµС… СЃРѕР±С‹С‚РёР№ РІРІРѕРґР°: Р·Р°РїСЂРѕСЃ GLFW Рѕ РЅР°Р¶Р°С‚РёРё/РѕС‚РїСѓСЃРєР°РЅРёРё РєР»Р°РІРёС€
+// РЅР° РєР»Р°РІРёР°С‚СѓСЂРµ РІ РґР°РЅРЅРѕРј РєР°РґСЂРµ Рё СЃРѕРѕС‚РІРµС‚СЃС‚РІСѓСЋС‰Р°СЏ РѕР±СЂР°Р±РѕС‚РєР° РґР°РЅРЅС‹С… СЃРѕР±С‹С‚РёР№
 void processInput(GLFWwindow *window) {
 	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
 		glfwSetWindowShouldClose(window, true);
+}
+
+// РёР·РјРµРЅРµРЅРёРµ СѓРіР»Р° РЅР°РєР»РѕРЅР° Р°РєС‚РёРІРЅРѕР№ РїСЂСЏРјРѕР№
+void scrollCallback(GLFWwindow *window, double xoffset, double yoffset) {
+	p.k_.at(p.activeId_) -= yoffset;
+	p.k_.at(p.activeId_) = std::clamp(p.k_.at(p.activeId_), -1.f, 1.f);
+
+	if(p.activeId_ == 0)
+		p.k_.back() = p.k_.at(0);
+	else if(p.activeId_ == p.k_.size() - 1)
+		p.k_.at(0) = p.k_.back();
+}
+
+void keyCallback(GLFWwindow *window, int key, int scancode, int action, int mods) {
+	// РІС‹Р±РѕСЂ Р°РєС‚РёРІРЅРѕР№ РїСЂСЏРјРѕР№
+	if(key == GLFW_KEY_RIGHT && action == GLFW_PRESS) {
+		p.incrActive();
+	}
+	if(key == GLFW_KEY_LEFT && action == GLFW_PRESS) {
+		p.decrActive();
+	}
+
+	// СЂРµРіСѓР»РёСЂРѕРІРєР° РєРѕР»РёС‡РµСЃС‚РІР° РѕРїРѕСЂРЅС‹С… С‚РѕС‡РµРє (РїСЂСЏРјС‹С…)
+	if(key == GLFW_KEY_UP && action == GLFW_PRESS) {
+		p.incrControlPoint();
+	}
+	if(key == GLFW_KEY_DOWN && action == GLFW_PRESS) {
+		p.decrControlPoint();
+	}
+
+	// СЂРµРіСѓР»РёСЂРѕРІРєР° РєРѕР»РёС‡РµРµСЃС‚РІР° РЅР°Р»РѕР¶РµРЅРёР№ РѕРєС‚Р°РІ
+	if(key == GLFW_KEY_W && action == GLFW_PRESS) {
+		p.incrOctave();
+	}
+	if(key == GLFW_KEY_S && action == GLFW_PRESS) {
+		p.decrOctave();
+	}
+
+	// СЂРµРіСѓР»РёСЂРѕРІРєР° РєРѕР»РёС‡РµСЃС‚РІР° С‚РѕС‡РµРє РЅР° РѕРґРёРЅ РїСЂРѕРјРµР¶СѓС‚РѕРє
+	if(key == GLFW_KEY_D && action == GLFW_PRESS) {
+		p.incrNumSteps();
+	}
+	if(key == GLFW_KEY_A && action == GLFW_PRESS) {
+		p.decrNumSteps();
+	}
+
+	// СЂРµРіСѓР»РёСЂРѕРІРєР° СЃРєРѕСЂРѕСЃС‚Рё РїСЂРёСЂРѕСЃС‚Р° РєРѕР»РёС‡РµСЃС‚РІР° С‚РѕС‡РµРє
+	if(key == GLFW_KEY_LEFT_CONTROL) {
+		if(action == GLFW_PRESS)
+			p.dx_ = 10;
+		else if(action == GLFW_RELEASE)
+			p.dx_ = 1;
+	}
+	if(key == GLFW_KEY_LEFT_SHIFT) {
+		if(action == GLFW_PRESS)
+			p.dx_ = 100;
+		else if(action == GLFW_RELEASE)
+			p.dx_ = 1;
+	}
 }

@@ -1,0 +1,183 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="Main.cpp" />
+    <ClCompile Include="Shaders\Shader.cpp">
+      <Filter>Shaders</Filter>
+    </ClCompile>
+    <ClCompile Include="Entities\Background.cpp">
+      <Filter>Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Entities\Perlin.cpp">
+      <Filter>Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Entities\Plot.cpp">
+      <Filter>Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Entities\GUI.cpp">
+      <Filter>Entities</Filter>
+    </ClCompile>
+    <ClCompile Include="Entities\interfaces\IDrawable.cpp">
+      <Filter>Entities\Interfaces</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\OpenGL\src\glad.c">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\backends\imgui_impl_glfw.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_demo.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_draw.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_tables.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_widgets.cpp">
+      <Filter>Vendors</Filter>
+    </ClCompile>
+    <ClCompile Include="Services\Window.cpp">
+      <Filter>Services</Filter>
+    </ClCompile>
+    <ClCompile Include="Wrappers\CUDA\ErrorException.cpp">
+      <Filter>Wrappers\CUDA</Filter>
+    </ClCompile>
+    <ClCompile Include="Services\Params.cpp">
+      <Filter>Services</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="Shaders\Shader.hpp">
+      <Filter>Shaders</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\imgui.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_glfw.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3_loader.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\imgui_internal.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_rectpack.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_textedit.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_truetype.h">
+      <Filter>Vendors</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\interfaces\ICalculable.hpp">
+      <Filter>Entities\Interfaces</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\interfaces\IDrawable.hpp">
+      <Filter>Entities\Interfaces</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\Background.hpp">
+      <Filter>Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\GUI.hpp">
+      <Filter>Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\Perlin.hpp">
+      <Filter>Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="Entities\Plot.hpp">
+      <Filter>Entities</Filter>
+    </ClInclude>
+    <ClInclude Include="Services\Definitions.hpp">
+      <Filter>Services</Filter>
+    </ClInclude>
+    <ClInclude Include="Services\Params.hpp">
+      <Filter>Services</Filter>
+    </ClInclude>
+    <ClInclude Include="Wrappers\CUDA\ErrorException.hpp">
+      <Filter>Wrappers\CUDA</Filter>
+    </ClInclude>
+    <ClInclude Include="CUDAKernels\Kernels.cuh">
+      <Filter>CUDAKernels</Filter>
+    </ClInclude>
+    <ClInclude Include="Wrappers\CUDA\MyLittleCUDAWrapper.cuh">
+      <Filter>Wrappers\CUDA</Filter>
+    </ClInclude>
+    <ClInclude Include="CUDAKernels\Fundamental.cuh">
+      <Filter>CUDAKernels</Filter>
+    </ClInclude>
+    <ClInclude Include="CUDAKernels\PreInitialize.cuh">
+      <Filter>CUDAKernels</Filter>
+    </ClInclude>
+    <ClInclude Include="Services\Window.hpp">
+      <Filter>Services</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Shaders\1D\1D_white.vert">
+      <Filter>Shaders\1D</Filter>
+    </None>
+    <None Include="Shaders\1D\1D_noise.vert">
+      <Filter>Shaders\1D</Filter>
+    </None>
+    <None Include="Shaders\1D\1D.frag">
+      <Filter>Shaders\1D</Filter>
+    </None>
+    <None Include="ClassDiagram.cd" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{49d007ca-0c61-419d-90e6-d64ea9daead7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Shaders\1D">
+      <UniqueIdentifier>{27e0b24b-bf35-4694-b728-677fbe3576b2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Entities">
+      <UniqueIdentifier>{02c17ccf-32a6-447f-b620-7450b6698b37}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Entities\Interfaces">
+      <UniqueIdentifier>{3d710496-29d7-41a6-917a-f2d8ddce9cff}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Vendors">
+      <UniqueIdentifier>{c8687d89-dd12-4d63-ad27-f75a7316585c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Services">
+      <UniqueIdentifier>{cb67656e-d6a5-4c3f-a43e-4f027e1bfd8e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Wrappers">
+      <UniqueIdentifier>{852bce8c-c55f-40e8-bbab-8be350ca0962}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Wrappers\CUDA">
+      <UniqueIdentifier>{9e3a11d5-7d28-46df-a35d-4cbfe91c9e9f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="CUDAKernels">
+      <UniqueIdentifier>{9e5d3afa-ae59-4913-9a8a-dea82329685d}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <CudaCompile Include="CUDAKernels\Kernels.cu">
+      <Filter>CUDAKernels</Filter>
+    </CudaCompile>
+    <CudaCompile Include="Wrappers\CUDA\MyLittleCUDAWrapper.cu">
+      <Filter>Wrappers\CUDA</Filter>
+    </CudaCompile>
+    <CudaCompile Include="CUDAKernels\Fundamental.cu">
+      <Filter>CUDAKernels</Filter>
+    </CudaCompile>
+    <CudaCompile Include="CUDAKernels\PreInitialize.cu">
+      <Filter>CUDAKernels</Filter>
+    </CudaCompile>
+  </ItemGroup>
+</Project>

@@ -13,20 +13,21 @@
   <PropertyGroup Label="Globals">
     <ProjectGuid>{08C7C518-F481-4E09-972E-65975A47857D}</ProjectGuid>
     <RootNamespace>PerlinNoise</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
     <CharacterSet>MultiByte</CharacterSet>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>MultiByte</CharacterSet>
-    <PlatformToolset>v142</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -41,7 +42,11 @@
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
-    <IncludePath>C:\OpenGL\include;$(IncludePath)</IncludePath>
+    <IncludePath>C:\OpenGL\include;C:\dear imgui\backends;C:\dear imgui;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\OpenGL\build\src\Release;$(LibraryPath)</LibraryPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <IncludePath>C:\OpenGL\include;C:\dear imgui\backends;C:\dear imgui;$(IncludePath)</IncludePath>
     <LibraryPath>C:\OpenGL\build\src\Release;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -50,6 +55,9 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;WIN64;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <MultiProcessorCompilation>false</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard_C>stdc17</LanguageStandard_C>
+      <EnableEnhancedInstructionSet>AdvancedVectorExtensions2</EnableEnhancedInstructionSet>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -59,6 +67,9 @@
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
       <NvccCompilation>compile</NvccCompilation>
+      <CodeGeneration>compute_75,sm_75;%(CodeGeneration)</CodeGeneration>
+      <AdditionalOptions>-std=c++17 -Xcompiler "/std:c++17" %(AdditionalOptions)</AdditionalOptions>
+      <Keep>true</Keep>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -68,31 +79,79 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>WIN32;WIN64;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <SubSystem>Console</SubSystem>
-      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>cudart_static.lib;kernel32.lib;user32.lib;gdi32.lib;winspool.lib;comdlg32.lib;advapi32.lib;shell32.lib;ole32.lib;oleaut32.lib;uuid.lib;odbc32.lib;odbccp32.lib;opengl32.lib;glfw3.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <CudaCompile>
       <TargetMachinePlatform>64</TargetMachinePlatform>
+      <AdditionalOptions>-std=c++17 -Xcompiler "/std:c++17" %(AdditionalOptions)</AdditionalOptions>
+      <CodeGeneration>compute_70,sm_70;compute_72,sm_72;compute_75,sm_75;compute_80,sm_80</CodeGeneration>
+      <NvccCompilation>compile</NvccCompilation>
+      <Keep>true</Keep>
     </CudaCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <CudaCompile Include="Kernels.cu" />
-    <CudaCompile Include="Main.cpp" />
+    <CudaCompile Include="CUDAKernels\PreInitialize.cu" />
+    <CudaCompile Include="Wrappers\CUDA\MyLittleCUDAWrapper.cu" />
+    <CudaCompile Include="CUDAKernels\Fundamental.cu" />
+    <CudaCompile Include="CUDAKernels\Kernels.cu" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\..\..\dear imgui\backends\imgui_impl_glfw.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\..\..\..\..\dear imgui\imgui_widgets.cpp" />
+    <ClCompile Include="Services\Params.cpp" />
+    <ClCompile Include="Wrappers\CUDA\ErrorException.cpp" />
+    <ClCompile Include="Main.cpp" />
     <ClCompile Include="..\..\..\..\..\OpenGL\src\glad.c" />
+    <ClCompile Include="Services\Window.cpp" />
+    <ClCompile Include="Shaders\Shader.cpp" />
+    <ClCompile Include="Entities\interfaces\IDrawable.cpp" />
+    <ClCompile Include="Entities\Background.cpp" />
+    <ClCompile Include="Entities\Plot.cpp" />
+    <ClCompile Include="Entities\Perlin.cpp" />
+    <ClCompile Include="Entities\GUI.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="Definitions.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_glfw.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\backends\imgui_impl_opengl3_loader.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\imgui.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\imgui_internal.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_textedit.h" />
+    <ClInclude Include="..\..\..\..\..\dear imgui\imstb_truetype.h" />
+    <ClInclude Include="CUDAKernels\Fundamental.cuh" />
+    <ClInclude Include="CUDAKernels\PreInitialize.cuh" />
+    <ClInclude Include="Wrappers\CUDA\MyLittleCUDAWrapper.cuh" />
+    <ClInclude Include="Wrappers\CUDA\ErrorException.hpp" />
+    <ClInclude Include="Services\Definitions.hpp" />
+    <ClInclude Include="CUDAKernels\Kernels.cuh" />
+    <ClInclude Include="Services\Params.hpp" />
+    <ClInclude Include="Shaders\Shader.hpp" />
+    <ClInclude Include="Services\Window.hpp" />
+    <ClInclude Include="Entities\interfaces\IDrawable.hpp" />
+    <ClInclude Include="Entities\interfaces\ICalculable.hpp" />
+    <ClInclude Include="Entities\Background.hpp" />
+    <ClInclude Include="Entities\Plot.hpp" />
+    <ClInclude Include="Entities\Perlin.hpp" />
+    <ClInclude Include="Entities\GUI.hpp" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="Shader.fs" />
-    <None Include="Shader.vs" />
+    <None Include="ClassDiagram.cd" />
+    <None Include="Shaders\1D\1D.frag" />
+    <None Include="Shaders\1D\1D_white.vert" />
+    <None Include="Shaders\1D\1D_noise.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

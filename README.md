@@ -14,12 +14,16 @@ CUDA
     - [x] Shared memory* implementation
       - [x] Naïve implementation
       - [x] Implementation optimized for any noise size
+    - [ ] Layering different noises on top of each other
 
 - [ ] 2D Perlin noise
   - [ ] Noise generation
   - [ ] Putting octaves on noise
     - [ ] Naïve implementation
     - [ ] Shared memory implementation
+    - [ ] Layering different noises on top of each other
+    
+- [ ] 3D Perlin noise
 
 >*shared memory is the GPU equivalent of the L1-cache in the CPU.
 

@@ -4,3 +4,6 @@
 [submodule "dependencies/imgui"]
 	path = dependencies/imgui
 	url = https://github.com/ocornut/imgui
+[submodule "dependencies/cuda-api-wrappers"]
+	path = dependencies/cuda-api-wrappers
+	url = https://github.com/eyalroz/cuda-api-wrappers

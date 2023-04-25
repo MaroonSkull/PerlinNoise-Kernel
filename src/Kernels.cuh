@@ -1,6 +1,4 @@
-﻿#include "Perlin.hpp"
-
-
+﻿#pragma once
 // ****************** Global functions ******************
 
 

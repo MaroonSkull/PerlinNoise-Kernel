@@ -5,7 +5,6 @@ include(GNUInstallDirs)
 
 #include CUDA
 find_package (CUDA REQUIRED)
-include_directories (${CUDA_INCLUDE_DIRS})
 
 #[[ include code
 #add_subdirectory ("src")
@@ -39,6 +38,9 @@ add_library (Common INTERFACE
 target_include_directories (Common INTERFACE src)
 
 target_link_libraries(${PROJECT_NAME} INTERFACE Common)
+
+target_include_directories(${PROJECT_NAME} SYSTEM INTERFACE ${CUDA_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} INTERFACE ${CUDA_LIBRARIES})
 
 install(
     TARGETS ${PROJECT_NAME}

@@ -3,6 +3,7 @@
 #include "Params.hpp"
 #include "cuda/runtime_api.hpp"
 #include "Fundamental.cuh"
+#include "Kernels.cuh"
 
 /**
 * Вспомогательная функция для вычисления шума Перлина на оси с использованием GPU.

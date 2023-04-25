@@ -1,33 +1,48 @@
 ﻿cmake_minimum_required (VERSION 3.19)
-project ("CMakeCUDA" LANGUAGES CXX CUDA)
+project ("PerlinNoise-Kernel" LANGUAGES CUDA CXX)
 
-add_executable (${PROJECT_NAME} "src/Main.cpp")
-target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
-
-set (CUDAKERNELS_DIR "CUDAKernels")
-set (ENTITIES_DIR "Entities")
-set (SERVICES_DIR "Services")
-set (SHADERS_DIR "Shaders")
-set (WRAPPERSCUDA_DIR "Wrappers/CUDA")
-
-#include OpenGL
-find_package (OpenGL REQUIRED)
+include(GNUInstallDirs)
 
 #include CUDA
 find_package (CUDA REQUIRED)
-include_directories(${CUDA_INCLUDE_DIRS})
+include_directories (${CUDA_INCLUDE_DIRS})
+
+#[[ include code
+#add_subdirectory ("src")
 
 #include 3rd party libraries
-add_subdirectory ("dependencies")
+#add_subdirectory ("dependencies")
 
 #link libraries
-foreach (library OpenGL::GL imgui)
-    target_link_libraries (${PROJECT_NAME} PRIVATE ${library})
-endforeach ()
+#target_link_libraries (${PROJECT_NAME} PRIVATE ${library})]]
 
-# include code
-add_subdirectory ("src")
 
-foreach (library ${CUDAKERNELS_DIR} ${ENTITIES_DIR} ${SERVICES_DIR} ${SHADERS_DIR} WrappersCUDA)
-    target_link_libraries (${PROJECT_NAME} PRIVATE ${library})
-endforeach ()
+add_library (
+	${PROJECT_NAME} INTERFACE
+	src/Perlin.cuh
+	src/Params.hpp
+)
+# as this is PUBLIC, anything that links to ${PROJECT_NAME} will also build with cxx_std_17
+target_compile_features (${PROJECT_NAME} INTERFACE cxx_std_17)
+
+set_target_properties (${PROJECT_NAME} PROPERTIES
+	POSITION_INDEPENDENT_CODE ON
+	CUDA_SEPARABLE_COMPILATION ON
+	PUBLIC_HEADER Perlin.cuh
+)
+target_include_directories (${PROJECT_NAME} INTERFACE src)
+
+add_library (Common INTERFACE
+	src/Fundamental.cuh
+	src/Kernels.cuh
+)
+target_include_directories (Common INTERFACE src)
+
+target_link_libraries(${PROJECT_NAME} INTERFACE Common)
+
+install(
+    TARGETS ${PROJECT_NAME}
+    LIBRARY DESTINATION lib
+    ARCHIVE DESTINATION lib
+    RUNTIME DESTINATION bin
+)

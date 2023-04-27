@@ -1,6 +1,5 @@
 # PerlinNoise
-Simple project where I'm trying to create Perlin noise generation algorithm from scratch using nvidia CUDA.  
-Also, in this project I'm learning how to work with OpenGL.
+Perlin noise generation algorithm with NVidia CUDA.
 
 List of targets
 ==
@@ -27,17 +26,6 @@ CUDA
 
 >*shared memory is the GPU equivalent of the L1-cache in the CPU.
 
-OpenGL
---
-- [x] displaying 1D Perlin noise...
-  - [x] ...as a graph of a function
-
-- [ ] displaying 2D Perlin noise...
-  - [ ] ...as a 2d texture
-  - [ ] ...as a height map
-
-- [ ] make it interactive
-
 Benchmarking
 --
 - [ ] Add code to measure the performance of CUDA cores
@@ -62,16 +50,10 @@ C++
 
 Project design
 --
-- [ ] Add code usage examples
-- [ ] Add screenshots with code execution results
 - [ ] Add code documentation
 - [ ] Translate all comments into English (some of them are written in the native language of the developer - Russian)
 
-Possible plans for project expansion
+Global targets
 ==
-- Add 3D perlin noise
-- Add creation of animated 2d noise with a smooth change in the coefficients
 - Make it into a library
 - Generate 2D noise using CUDA directly into a texture video card, explore the possibility of directly mapping textures using OpenGL
-- Add GUI (qt qml?)
-- Make the code independent of the used OC (at the moment, the project is oriented towards Windows)

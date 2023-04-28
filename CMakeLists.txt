@@ -17,12 +17,15 @@ find_package (CUDA REQUIRED)
 
 
 add_library (
-	${PROJECT_NAME} INTERFACE
+	${PROJECT_NAME}
 	src/Perlin.cuh
+	src/Perlin.cu
 	src/Params.hpp
+	src/Fundamental.cuh
+	src/Kernels.cuh
 )
 # as this is PUBLIC, anything that links to ${PROJECT_NAME} will also build with cxx_std_17
-target_compile_features (${PROJECT_NAME} INTERFACE cxx_std_17)
+target_compile_features (${PROJECT_NAME} PUBLIC cxx_std_17)
 
 set_target_properties (${PROJECT_NAME} PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
@@ -31,15 +34,15 @@ set_target_properties (${PROJECT_NAME} PROPERTIES
 )
 target_include_directories (${PROJECT_NAME} INTERFACE src)
 
-add_library (Common INTERFACE
+#[[add_library (Common INTERFACE
 	src/Fundamental.cuh
 	src/Kernels.cuh
 )
 target_include_directories (Common INTERFACE src)
 
-target_link_libraries(${PROJECT_NAME} INTERFACE Common)
+target_link_libraries(${PROJECT_NAME} INTERFACE Common)]]
 
-target_include_directories(${PROJECT_NAME} SYSTEM INTERFACE ${CUDA_INCLUDE_DIRS})
+target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${CUDA_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} INTERFACE ${CUDA_LIBRARIES})
 
 install(

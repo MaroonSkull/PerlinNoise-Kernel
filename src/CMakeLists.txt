@@ -2,15 +2,15 @@
 project (${PROJECT_NAME}-src LANGUAGES CXX CUDA)
 
 #include CUDA
-find_package(CUDALibs VERSION 9.0 REQUIRED)
+find_package (CUDAToolkit)
 
 add_library (
 	${PROJECT_NAME}
-	src/Perlin.cuh
-	src/Perlin.cu
-	src/Params.hpp
-	src/Fundamental.cuh
-	src/Kernels.cuh
+	Params.hpp
+	Perlin.cuh
+	Perlin.cu
+	Fundamental.cuh
+	Kernels.cuh
 )
 
 set_target_properties (${PROJECT_NAME} PROPERTIES
@@ -20,6 +20,7 @@ set_target_properties (${PROJECT_NAME} PROPERTIES
 )
 target_include_directories (${PROJECT_NAME} PUBLIC /)
 
+#mb it must be public linkage, not an interface
 #[[add_library (Common INTERFACE
 	src/Fundamental.cuh
 	src/Kernels.cuh
@@ -28,4 +29,5 @@ target_include_directories (Common INTERFACE src)
 
 target_link_libraries(${PROJECT_NAME} INTERFACE Common)]]
 
-target_link_libraries(${PROJECT_NAME} CUDA::cudart)
+target_link_libraries(${PROJECT_NAME}
+	PRIVATE CUDA::cudart)

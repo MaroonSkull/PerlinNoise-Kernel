@@ -4,8 +4,8 @@ project (${PROJECT_NAME}-src LANGUAGES CXX CUDA)
 #include CUDA
 find_package (CUDAToolkit)
 
-add_library (
-	${PROJECT_NAME}
+add_library (${PROJECT_NAME}
+	PUBLIC
 	Params.hpp
 	Perlin.cuh
 	Perlin.cu
@@ -13,21 +13,23 @@ add_library (
 	Kernels.cuh
 )
 
-set_target_properties (${PROJECT_NAME} PROPERTIES
+set_target_properties (${PROJECT_NAME}
+	PROPERTIES
 	POSITION_INDEPENDENT_CODE ON
 	CUDA_SEPARABLE_COMPILATION ON
-	PUBLIC_HEADER Perlin.cuh
 )
+
 target_include_directories (${PROJECT_NAME} PUBLIC /)
 
-#mb it must be public linkage, not an interface
-#[[add_library (Common INTERFACE
-	src/Fundamental.cuh
-	src/Kernels.cuh
+target_link_libraries (${PROJECT_NAME}
+	INTERFACE CUDA::cudart
+	INTERFACE CUDA::cuda_driver
 )
-target_include_directories (Common INTERFACE src)
 
-target_link_libraries(${PROJECT_NAME} INTERFACE Common)]]
+add_library ("${pnk_namespace}::${PROJECT_NAME}" ALIAS ${PROJECT_NAME})
 
-target_link_libraries(${PROJECT_NAME}
-	PRIVATE CUDA::cudart)
+set_target_properties(${PROJECT_NAME}
+	PROPERTIES
+	EXPORT_NAME ${pnk_namespace}
+	OUTPUT_NAME ${pnk_namespace}
+)

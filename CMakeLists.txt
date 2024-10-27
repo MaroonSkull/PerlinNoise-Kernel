@@ -1,78 +1,56 @@
-﻿cmake_minimum_required (VERSION 3.19)
+﻿cmake_minimum_required (VERSION 3.23)
 
-if (WIN32 AND "${CMAKE_CXX_COMPILER_ID}" STREQUAL "MSVC")
-	# Avoid a build failure when the BUILD_SHARED_LIBS variable is set to true.
-	set (CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS YES CACHE BOOL "Export all symbols")
-endif ()
-
-project (PerlinNoise-Kernel
-    VERSION 1.5.1
-    DESCRIPTION "Perlin noise generation algorithm with NVidia CUDA"
+project (PNK
+    VERSION 1.5.2
+    DESCRIPTION "Perlin noise generation library with NVidia CUDA"
     HOMEPAGE_URL https://github.com/MaroonSkull/PerlinNoise-Kernel
-    LANGUAGES CXX
+    LANGUAGES CXX CUDA
 )
 
-include (GNUInstallDirs)
-set (pnk_namespace "pnk")
-set (pnk_lib "pnk_${PROJECT_NAME}")
+add_library (${PROJECT_NAME} INTERFACE)
 
-#include CUDA
-find_package (CUDAToolkit 9.0 REQUIRED)
-
-set (CMAKE_LIBRARY_OUTPUT_DIRECTORY "lib/")
-set (CMAKE_ARCHIVE_OUTPUT_DIRECTORY "lib/")
-
-
-add_library (${pnk_lib} INTERFACE)
-target_compile_features (${pnk_lib} INTERFACE cxx_std_17)
-
-target_include_directories (${pnk_lib}
-    INTERFACE
-    "$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>"
-    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+target_sources (${PROJECT_NAME}
+	INTERFACE
+	FILE_SET
+		the_${PROJECT_NAME}_headers
+	TYPE
+		HEADERS
+	BASE_DIRS
+		include
+	FILES
+		include/pnk/Fundamental.cuh
+		include/pnk/Kernels.cuh
+		include/pnk/Perlin.cuh
+		include/pnk/Params.hpp
 )
 
-target_link_libraries (${pnk_lib} INTERFACE
-    CUDA::cudart
-	CUDA::cuda_driver
+target_compile_features (${PROJECT_NAME}
+	INTERFACE
+		cxx_std_17
 )
 
-add_library ("${pnk_namespace}::${PROJECT_NAME}" ALIAS ${pnk_lib})
-
-set_target_properties(${PROJECT_NAME}
-	PROPERTIES
-	EXPORT_NAME ${pnk_namespace}
-	OUTPUT_NAME ${pnk_namespace}
+target_link_libraries (${PROJECT_NAME}
+	INTERFACE
+    	CUDA::cudart
+#		CUDA::cuda_driver
 )
 
-#install lib
-install(
-	TARGETS ${pnk_lib}
-	RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-	ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-	LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-	INCLUDES DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+install (
+	TARGETS
+		${PROJECT_NAME}
+	EXPORT
+		${PROJECT_NAME}Export
+	FILE_SET
+		the_${PROJECT_NAME}_headers
+	DESTINATION
+		${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}
 )
 
-#[[install(
-	DIRECTORY src/
-	DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-	FILES_MATCHING REGEX "\\.(hpp|cuh)$"
-)]]
-
-#[[
-#include code
-add_subdirectory ("src")
-
-#include 3rd party libraries
-add_subdirectory ("dependencies")
-
-#link libraries
-target_link_libraries(${PROJECT_NAME} PUBLIC ${PROJECT_NAME}-src)
-
-install(
-    TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-)]]
+install (
+	EXPORT
+		${PROJECT_NAME}Export
+	NAMESPACE
+		${PROJECT_NAME}::
+	DESTINATION
+		lib/cmake/${PROJECT_NAME}
+)

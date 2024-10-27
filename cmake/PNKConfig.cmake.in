@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+### TODO: make it works
+
+# Set the namespace and targets
+set(PNK_LIBRARIES PNK::PNK)

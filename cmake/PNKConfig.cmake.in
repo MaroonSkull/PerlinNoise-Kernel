@@ -2,7 +2,17 @@
 
 include(CMakeFindDependencyMacro)
 
-### TODO: make it works
+enable_language(CUDA)
 
-# Set the namespace and targets
-set(PNK_LIBRARIES PNK::PNK)
+include("${CMAKE_CURRENT_LIST_DIR}/PNKTargets.cmake")
+
+set(PNK_INCLUDE_DIRS "@PACKAGE_INCLUDE_INSTALL_DIR@")
+set(PNK_LIBRARIES PNK)
+
+# Provide compatibility for consumers using CMake < 3.0.0
+if (NOT TARGET PNK::PNK)
+    add_library(PNK::PNK INTERFACE IMPORTED)
+    set_target_properties(PNK::PNK PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${PNK_INCLUDE_DIRS}"
+    )
+endif()

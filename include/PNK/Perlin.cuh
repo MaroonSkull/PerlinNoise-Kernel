@@ -61,9 +61,9 @@ template<typename T> void Perlin1D(T* vertices, const Params1D& p) {
 	// Выполняем наложение октав на получившийся шум.
 	if (p.octaveNum) {
 		if (p.resultDotsCols <= 2 * 32 * 1024 / sizeof(T)) // если вся октава помещается в разделяемую память, вызываем простое ядро
-			Perlin1Doctave_shared_kernel<T> << <blocksPerGrid, threadsPerBlock >> > (dev_noise, dev_octave, p.resultDotsCols, p.octaveNum);
+			Perlin1Doctave_shared_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, p.resultDotsCols, p.octaveNum);
 		else // если октава не помещается целиком, вызываем сложное ядро.
-			Perlin1Doctave_shared_unlimited_kernel<T> << <blocksPerGrid, threadsPerBlock >> > (dev_noise, dev_octave, p.resultDotsCols, p.octaveNum);
+			Perlin1Doctave_shared_unlimited_kernel<T> <<<blocksPerGrid, threadsPerBlock>>> (dev_noise, dev_octave, p.resultDotsCols, p.octaveNum);
 	}
 
 	Perlin1Dvertices_kernel<T> << <blocksPerGrid, threadsPerBlock >> >

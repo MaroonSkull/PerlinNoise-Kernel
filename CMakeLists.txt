@@ -18,10 +18,10 @@ target_sources (${PROJECT_NAME}
 	BASE_DIRS
 		include
 	FILES
-		include/pnk/Fundamental.cuh
-		include/pnk/Kernels.cuh
-		include/pnk/Perlin.cuh
-		include/pnk/Params.hpp
+		include/${PROJECT_NAME}/Fundamental.cuh
+		include/${PROJECT_NAME}/Kernels.cuh
+		include/${PROJECT_NAME}/Perlin.cuh
+		include/${PROJECT_NAME}/Params.hpp
 )
 
 target_compile_features (${PROJECT_NAME}
@@ -38,15 +38,21 @@ install(TARGETS ${PROJECT_NAME}
 	INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 
-install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT ${PROJECT_NAME}Targets
+    FILE ${PROJECT_NAME}Targets.cmake
+    NAMESPACE PNK::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PNK
+)
 
-# Генерация конфигурационного файла
+#install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Generate pkg-config files
 include(CMakePackageConfigHelpers)
 
 configure_package_config_file(
     cmake/PNKConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/PNKConfig.cmake
-    INSTALL_DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/cmake/PNK
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PNK
 )
 
 write_basic_package_version_file(
@@ -58,11 +64,10 @@ write_basic_package_version_file(
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/PNKConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/PNKConfigVersion.cmake
-    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/cmake/PNK
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PNK
 )
 
-install(EXPORT ${PROJECT_NAME}Targets
-    FILE ${PROJECT_NAME}Targets.cmake
-    NAMESPACE PNK::
-    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/cmake/PNK
-)
+# Add 
+export(EXPORT ${PROJECT_NAME}Targets
+        FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
+        NAMESPACE ${PROJECT_NAME}::)

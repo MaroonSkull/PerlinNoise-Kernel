@@ -67,7 +67,7 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/PNK
 )
 
-# Add 
+# Add possibility to find_package without install
 export(EXPORT ${PROJECT_NAME}Targets
         FILE ${CMAKE_CURRENT_BINARY_DIR}/${PROJECT_NAME}Config.cmake
         NAMESPACE ${PROJECT_NAME}::)

@@ -1,48 +1,46 @@
-﻿cmake_minimum_required (VERSION 3.19)
-project ("PerlinNoise-Kernel" LANGUAGES CUDA CXX)
+﻿cmake_minimum_required(VERSION 3.23)
+
+project(PNK
+  VERSION 1.1
+  DESCRIPTION "Library for compute Multidimensional Perlin Noise via NVidia CUDA."
+  HOMEPAGE_URL https://github.com/MaroonSkull/PerlinNoise-Kernel
+  LANGUAGES CUDA CXX
+)
 
 include(GNUInstallDirs)
 
-#include CUDA
-find_package (CUDA REQUIRED)
-include_directories (${CUDA_INCLUDE_DIRS})
+# setup CUDA
+include(CheckLanguage)
+check_language(CUDA)
+if(CMAKE_CUDA_COMPILER)
+  enable_language(CUDA)
+  set (CMAKE_CUDA_STANDARD 17)
+else()
+  message(FATAL_ERROR "CUDA not found")
+endif(CMAKE_CUDA_COMPILER)
 
-#[[ include code
-#add_subdirectory ("src")
+add_subdirectory (dependencies/cuda-api-wrappers)
 
-#include 3rd party libraries
-#add_subdirectory ("dependencies")
-
-#link libraries
-#target_link_libraries (${PROJECT_NAME} PRIVATE ${library})]]
-
-
-add_library (
-	${PROJECT_NAME} INTERFACE
-	src/Perlin.cuh
-	src/Params.hpp
+add_library(${PROJECT_NAME}
+  INTERFACE
+  src/Perlin.hpp
 )
 # as this is PUBLIC, anything that links to ${PROJECT_NAME} will also build with cxx_std_17
-target_compile_features (${PROJECT_NAME} INTERFACE cxx_std_17)
+target_compile_features(${PROJECT_NAME} INTERFACE cxx_std_17)
 
-set_target_properties (${PROJECT_NAME} PROPERTIES
-	POSITION_INDEPENDENT_CODE ON
-	CUDA_SEPARABLE_COMPILATION ON
-	PUBLIC_HEADER Perlin.cuh
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  POSITION_INDEPENDENT_CODE ON
+  CUDA_SEPARABLE_COMPILATION ON
+  PUBLIC_HEADER Perlin.hpp
 )
-target_include_directories (${PROJECT_NAME} INTERFACE src)
-
-add_library (Common INTERFACE
-	src/Fundamental.cuh
-	src/Kernels.cuh
+target_link_libraries(${PROJECT_NAME}
+  INTERFACE
+    cuda-api-wrappers::runtime-and-driver
 )
-target_include_directories (Common INTERFACE src)
-
-target_link_libraries(${PROJECT_NAME} INTERFACE Common)
 
 install(
-    TARGETS ${PROJECT_NAME}
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
+  TARGETS ${PROJECT_NAME}
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib
+  RUNTIME DESTINATION bin
 )

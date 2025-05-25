@@ -1,7 +1,7 @@
 ﻿cmake_minimum_required(VERSION 3.23)
 
 project(PNK
-  VERSION 1.1
+  VERSION 1.2
   DESCRIPTION "Library for compute Multidimensional Perlin Noise via NVidia CUDA."
   HOMEPAGE_URL https://github.com/MaroonSkull/PerlinNoise-Kernel
   LANGUAGES CUDA CXX
@@ -17,19 +17,25 @@ if (CMAKE_CUDA_COMPILER)
   enable_language (CUDA)
   set (CMAKE_CUDA_STANDARD 17)
 else ()
-  message (FATAL_ERROR "CUDA not found")
+  message (
+    WARNING
+    "CUDA not found"
+  )
 endif (CMAKE_CUDA_COMPILER)
 
 add_subdirectory (dependencies/cuda-api-wrappers)
 
 add_library (${PROJECT_NAME}
-  INTERFACE
+  STATIC
   src/Perlin.hpp
+  src/Perlin.cu
 )
 # as this is PUBLIC, anything that links to ${PROJECT_NAME} will also build with cxx_std_17
-target_compile_features (${PROJECT_NAME} INTERFACE cxx_std_17)
+target_compile_features (${PROJECT_NAME} PUBLIC cxx_std_17)
 
-set_source_files_properties(src/Perlin.hpp PROPERTIES LANGUAGE CUDA)
+if (CMAKE_CUDA_COMPILER)
+  set_source_files_properties(src/Perlin.cu PROPERTIES LANGUAGE CUDA)
+endif (CMAKE_CUDA_COMPILER)
 
 set_target_properties (${PROJECT_NAME} PROPERTIES
   POSITION_INDEPENDENT_CODE ON
@@ -38,11 +44,11 @@ set_target_properties (${PROJECT_NAME} PROPERTIES
 )
 
 target_link_libraries (${PROJECT_NAME}
-  INTERFACE
+  PUBLIC
     cuda-api-wrappers::runtime-and-driver
 )
 
-target_include_directories (${PROJECT_NAME} INTERFACE
+target_include_directories (${PROJECT_NAME} PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )

@@ -29,6 +29,8 @@ add_library (${PROJECT_NAME}
 # as this is PUBLIC, anything that links to ${PROJECT_NAME} will also build with cxx_std_17
 target_compile_features (${PROJECT_NAME} INTERFACE cxx_std_17)
 
+set_source_files_properties(src/Perlin.hpp PROPERTIES LANGUAGE CUDA)
+
 set_target_properties (${PROJECT_NAME} PROPERTIES
   POSITION_INDEPENDENT_CODE ON
   CUDA_SEPARABLE_COMPILATION ON

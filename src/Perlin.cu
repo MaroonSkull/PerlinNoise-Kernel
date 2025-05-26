@@ -1,5 +1,6 @@
 #include "Perlin.hpp"
-#include <vector>
+#include "cuda/api/launch_configuration.hpp"
+#include <iostream>
 
 #ifdef __CUDACC__
 // #include <cuda/api/detail/unique_span.hpp>
@@ -64,7 +65,8 @@ template <typename T> __device__ __forceinline__ T smoothstep_kernel(T x) {
  */
 template <typename T> __device__ __forceinline__ T smootherstep_kernel(T x) {
   // 6x^5 - 15x^4 + 10x^3 = x^3(6x^2 - 15x + 10)
-  return fma(static_cast<T>(6), x * x, fma(static_cast<T>(-15), x, static_cast<T>(10))) *
+  return fma(static_cast<T>(6), x * x,
+             fma(static_cast<T>(-15), x, static_cast<T>(10))) *
          x * x * x;
 }
 
@@ -80,13 +82,11 @@ template <typename T> __device__ __forceinline__ T smootherstep_kernel(T x) {
  * \param axisLength – длина массива noise.
  * \param axisStep – величина шага между точками, в которых вычисляется шум.
  * \param pointsBetweenGradients – количество точек между контрольными узлами.
- * \param isOctaveCalkNeed – будут ли в дальнейшем вычисляться октавы.
  */
 template <typename T>
-__global__ void Perlin1D_kernel(T *noise, T *octave, const T *gradients,
+__global__ void Perlin1D_kernel(T *noise, const T *gradients,
                                 uint32_t axisLength, T axisStep,
-                                uint32_t pointsBetweenGradients,
-                                bool isOctaveCalkNeed) {
+                                uint32_t pointsBetweenGradients) {
   // количество threads, выполняющих вычисления
   uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -116,12 +116,45 @@ __global__ void Perlin1D_kernel(T *noise, T *octave, const T *gradients,
 
   // Интерполяцией находим шум, пишем сразу в выходной массив
   noise[id] = lerp_kernel(y0, y1, t);
+}
 
-  // Если нужно вычислять октавы, сохраняем в памяти первую окатву шума
-  if (isOctaveCalkNeed)
-    // Первая октава занимает в два раза меньше памяти, чем исходный шум
-    if (id % 2 == 0)
-      octave[id >> 1] = noise[id] * 0.5;
+template <typename T> __device__ T pow_func(T base, int exponent) {
+  T result = 1;
+  for (int i = 0; i < exponent; ++i) {
+    result *= base;
+  }
+  return result;
+}
+
+// Основное ядро для октав
+template <typename T>
+__global__ void ApplyOctavesKernel(const T *input, T *output, int size,
+                                   int numOctaves, T lacunarity,
+                                   T persistence) {
+  int id = blockIdx.x * blockDim.x + threadIdx.x;
+  if (id >= size)
+    return;
+
+  T value = input[id]; // Исходное значение шума
+
+  for (int octave = 0; octave < numOctaves; ++octave) {
+    T frequency = pow_func(lacunarity, octave + 1);
+    T amplitude = pow_func(persistence, octave + 1);
+
+    int index = static_cast<int>(id * frequency) % size;
+
+    T sample;
+    if (index + 1 >= size) {
+      sample = input[size - 1];
+    } else {
+      T fract = id * frequency - floor(id * frequency);
+      sample = lerp_kernel<float>(input[index], input[index + 1], fract);
+    }
+
+    value += amplitude * sample;
+  }
+
+  output[id] = value;
 }
 
 /**
@@ -320,6 +353,7 @@ class PerlinImpl : public IPerlin {
   using i = IPerlin;
 
   /// Линеаризованный массив градиентов
+  std::vector<float> hv_gradients_;
   thrust::host_vector<float> h_gradients_;
   thrust::device_vector<float> d_gradients_;
 
@@ -327,51 +361,21 @@ class PerlinImpl : public IPerlin {
   std::vector<float> hv_noise_;
   thrust::host_vector<float> h_noise_;
   thrust::device_vector<float> d_noise_;
-  thrust::device_vector<float> d_octave_;
-
-  // Инициализация градиентов случайными значениями
-  void initializeGradients() {
-    std::cout << "Initializing gradients..." << std::endl;
-
-    h_gradients_.clear();
-    h_gradients_.resize(i::numberOfDimensions_ * i::numberOfGradients_ + 1);
-
-    static thrust::default_random_engine rng(1337);
-    static thrust::uniform_real_distribution<float> dist(-1.0, 1.0);
-
-    thrust::generate(h_gradients_.begin(), h_gradients_.end(),
-                     [&] { return dist(rng); });
-
-    // закольцовываем градиент
-    h_gradients_[i::numberOfDimensions_ * i::numberOfGradients_] =
-        h_gradients_[0];
-
-    for (const auto &gradient : h_gradients_) {
-      std::cout << gradient << " ";
-    }
-    std::cout << std::endl;
-
-    d_gradients_ = h_gradients_;
-  }
+  thrust::device_vector<float> d_tempNoise_;
 
   void calculateNoise() {
-    std::cout << "Calculating noise..." << std::endl;
-
     h_noise_.clear();
     hv_noise_.clear();
 
     // Количество точек пространства - это длина одной оси в степени измерений.
-    std::size_t numberOfPoints =
-        std::pow(i::getAxisLenght(), i::numberOfDimensions_);
-    std::size_t sizeOfPoint = i::numberOfDimensions_;
+    int numberOfPoints = std::pow(i::getAxisLenght(), i::numberOfDimensions_);
+    int sizeOfPoint = i::numberOfDimensions_;
 
     d_noise_.resize(sizeOfPoint * numberOfPoints);
-    d_octave_.resize(d_noise_.size() / 2);
 
     if (i::numberOfDimensions_ == 1) {
       // Получаем raw-указатели на device данные
       float *d_noise = thrust::raw_pointer_cast(d_noise_.data());
-      float *d_octave = thrust::raw_pointer_cast(d_octave_.data());
       const float *d_gradients = thrust::raw_pointer_cast(d_gradients_.data());
 
       auto launch_config =
@@ -381,15 +385,19 @@ class PerlinImpl : public IPerlin {
                                               : 1)
               .build();
 
-      std::cout << "CUDA kernel launch with " << launch_config.dimensions.grid.x
-                << " blocks of " << launch_config.dimensions.block.x
-                << " threads each\n";
+      // std::cout << "CUDA kernel launch with " <<
+      // launch_config.dimensions.grid.x
+      //           << " blocks of " << launch_config.dimensions.block.x
+      //           << " threads each\n";
 
       // Launch a kernel on the GPU with one thread for each element.
-      cuda::launch(kernels::Perlin1D_kernel<float>, launch_config, d_noise, d_octave,
+      cuda::launch(kernels::Perlin1D_kernel<float>, launch_config, d_noise,
                    d_gradients, numberOfPoints,
-                   i::getDistanceBetweenTwoPoints(), i::pointsBetweenGradients_,
-                   i::numberOfOctaves_);
+                   i::getDistanceBetweenTwoPoints(),
+                   i::pointsBetweenGradients_);
+
+      if (i::numberOfOctaves_)
+        applyOctaves(launch_config);
 
       if (cuda::outstanding_error::get() != cuda::status_t::CUDA_SUCCESS) {
         std::cerr << "CUDA error occurred during kernel execution\n";
@@ -411,18 +419,81 @@ class PerlinImpl : public IPerlin {
     hv_noise_.resize(h_noise_.size());
   }
 
+  void applyOctaves(cuda::launch_configuration_t &kernels_config) {
+    d_tempNoise_ = d_noise_;
+
+    // Получаем raw-указатели на device данные
+    float *d_noise = thrust::raw_pointer_cast(d_noise_.data());
+    float *d_tempNoise = thrust::raw_pointer_cast(d_tempNoise_.data());
+
+    // Количество точек пространства - это длина одной оси в степени измерений.
+    int numberOfPoints = std::pow(i::getAxisLenght(), i::numberOfDimensions_);
+
+    // Launch a kernel on the GPU with one thread for each element.
+    cuda::launch(kernels::ApplyOctavesKernel<float>, kernels_config, d_noise,
+                 d_tempNoise, numberOfPoints, i::numberOfOctaves_,
+                 i::lacunarity_, i::persistence_);
+
+    if (cuda::outstanding_error::get() != cuda::status_t::CUDA_SUCCESS) {
+      std::cerr << "CUDA error occurred during octaves kernel execution\n";
+      return;
+    }
+
+    d_noise_ = d_tempNoise_;
+  }
+
+  void addGradients() {
+    static thrust::default_random_engine rng(1337);
+    static thrust::uniform_real_distribution<float> dist(-1.0, 1.0);
+
+    if (!hv_gradients_.empty()) {
+      hv_gradients_.insert(hv_gradients_.end() - 1, dist(rng));
+    } else {
+      // Если массив пуст, добавляем 0, чтобы соблюсти условие
+      auto gradient = dist(rng);
+      hv_gradients_.push_back(gradient);
+      hv_gradients_.push_back(gradient);
+    }
+  }
+
+  void removeGradient() {
+    if (!hv_gradients_.empty()) {
+      hv_gradients_.erase(hv_gradients_.end() - 2);
+    }
+  }
+
 public:
   static const bool isCUDAAvailable{true};
 
   /**
    * @brief Конструктор класса Perlin.
    */
-  PerlinImpl() : IPerlin() {
-    std::cout << "Use CUDA" << std::endl;
-    initializeGradients();
+  PerlinImpl() : IPerlin() { std::cout << "Use CUDA" << std::endl; }
+
+  // Инициализация градиентов случайными значениями
+  std::vector<float> &initializeGradients() {
+    for (auto i = hv_gradients_.size(); i <= i::numberOfGradients_;
+         i = hv_gradients_.size()) {
+      addGradients();
+    }
+    for (auto i = hv_gradients_.size() - 1; i > i::numberOfGradients_;
+         i = hv_gradients_.size() - 1) {
+      removeGradient();
+    }
+
+    hv_gradients_.back() = hv_gradients_.front(); // Замыкаем циклический массив
+
+    h_gradients_ = hv_gradients_;
+    d_gradients_ = h_gradients_;
+
+    hv_noise_.resize(i::getAxisLenght());
+    h_noise_.resize(i::getAxisLenght());
+    d_noise_.resize(i::getAxisLenght());
+
+    return hv_gradients_;
   }
 
-  std::vector<float> getNoise() {
+  std::vector<float> &getNoise() {
     initializeGradients();
     calculateNoise();
     thrust::copy(h_noise_.begin(), h_noise_.end(), hv_noise_.begin());
@@ -432,9 +503,8 @@ public:
 
 #else
 
-#include <algorithm>
+#include <cmath>
 #include <random>
-#include <vector>
 
 class PerlinImpl : public IPerlin {
 
@@ -445,28 +515,6 @@ class PerlinImpl : public IPerlin {
 
   /// Значения шума во всех точках пространства
   std::vector<float> noise_;
-
-  // Инициализация градиентов случайными значениями
-  void initializeGradients() {
-    std::cout << "Initializing gradients..." << std::endl;
-
-    gradients_.clear();
-    gradients_.shrink_to_fit();
-    // + 1 точка в конце закольцовывает шум
-    gradients_.resize(i::numberOfDimensions_ * i::numberOfGradients_ + 1);
-
-    static std::default_random_engine rng(1337);
-    static std::uniform_real_distribution dist(-1.0, 1.0);
-
-    std::generate(gradients_.begin(), --gradients_.end(),
-                  [&] { return dist(rng); });
-
-    // закольцовываем градиент
-    gradients_.at(i::numberOfDimensions_ * i::numberOfGradients_) =
-        gradients_.at(0);
-
-    noise_.resize(i::getAxisLenght());
-  }
 
   /**
    * @brief Линейная интерполяция.
@@ -530,7 +578,7 @@ class PerlinImpl : public IPerlin {
     for (int id = 0; id < noiseSize; id++) {
       // 0 0 0 / 1 1 1 / 2 2 2 / .. – какие точки шума к каким контрольным узлам
       // принадлежат
-      std::size_t n = id * axisStep;
+      int n = id * axisStep;
 
       // 0 1 2 / 0 1 2 / 0 1 2 / .. – позиция точки между левым и правым
       // контрольным узлом
@@ -555,15 +603,72 @@ class PerlinImpl : public IPerlin {
     }
   }
 
-public:
-  PerlinImpl() : IPerlin() {
-    std::cout << "Use CPU" << std::endl;
-    initializeGradients();
+  void applyOctaves() {
+    std::vector<float> tempNoise = noise_;
+    for (int i = 1; i <= i::numberOfOctaves_; ++i) {
+      float frequency = powf(i::lacunarity_, i);
+      float amplitude = powf(i::persistence_, i);
+      for (int j = 0; j < noise_.size(); ++j) {
+        int index = static_cast<int>(j * frequency) % noise_.size();
+        float sample;
+        if (index + 1 >= noise_.size()) {
+          sample = noise_[noise_.size() - 1];
+        } else {
+          float fract = j * frequency - floorf(j * frequency);
+          sample = lerp(noise_[index], noise_[index + 1], fract);
+        }
+        tempNoise[j] += amplitude * sample;
+      }
+    }
+    noise_ = tempNoise;
   }
 
-  std::vector<float> getNoise() {
+  void addGradients() {
+    static std::default_random_engine rng(1337);
+    static std::uniform_real_distribution dist(-1.0, 1.0);
+
+    if (!gradients_.empty()) {
+      gradients_.insert(gradients_.end() - 1, dist(rng));
+    } else {
+      // Если массив пуст, добавляем 0, чтобы соблюсти условие
+      auto gradient = dist(rng);
+      gradients_.push_back(gradient);
+      gradients_.push_back(gradient);
+    }
+  }
+
+  void removeGradient() {
+    if (!gradients_.empty()) {
+      gradients_.erase(gradients_.end() - 2);
+    }
+  }
+
+public:
+  PerlinImpl() : IPerlin() { std::cout << "Use CPU" << std::endl; }
+
+  // Инициализация градиентов случайными значениями
+  std::vector<float> &initializeGradients() {
+    for (auto i = gradients_.size(); i <= i::numberOfGradients_;
+         i = gradients_.size()) {
+      addGradients();
+    }
+    for (auto i = gradients_.size() - 1; i > i::numberOfGradients_;
+         i = gradients_.size() - 1) {
+      removeGradient();
+    }
+
+    gradients_.back() = gradients_.front(); // Замыкаем циклический массив
+
+    noise_.resize(i::getAxisLenght());
+
+    return gradients_;
+  }
+
+  std::vector<float> &getNoise() {
     initializeGradients();
     calculateBaseNoise();
+    if (i::numberOfOctaves_)
+      applyOctaves();
     return noise_;
   }
 };

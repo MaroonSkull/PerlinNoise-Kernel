@@ -1,5 +1,4 @@
 #include "Perlin.hpp"
-#include "cuda/api/launch_configuration.hpp"
 #include <iostream>
 
 #ifdef __CUDACC__
@@ -7,6 +6,7 @@
 #include <cuda/api.hpp>
 #include <cuda/api/error.hpp>
 #include <cuda/api/kernel_launch.hpp>
+#include <cuda/api/launch_configuration.hpp>
 #include <cuda/api/memory.hpp>
 
 #include <thrust/device_vector.h>
